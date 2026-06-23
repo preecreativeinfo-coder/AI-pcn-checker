@@ -1,0 +1,289 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: PCN Checker API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: ocr
+    description: OCR processing
+  - name: vehicle
+    description: UK government vehicle lookups (DVLA VES & DVSA MOT History)
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /ocr/process:
+    post:
+      operationId: processOcr
+      tags: [ocr]
+      summary: Process OCR on uploaded file
+      description: Accepts a base64-encoded image or PDF, runs OCR, returns extracted PCN fields
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OcrFileInput"
+      responses:
+        "200":
+          description: OCR extraction successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OcrResult"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: OCR processing failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /vehicle/lookup:
+    post:
+      operationId: lookupVehicle
+      tags: [vehicle]
+      summary: Look up vehicle details from DVLA VES
+      description: >
+        Proxies the DVLA Vehicle Enquiry Service. Returns road tax status,
+        MOT status, colour, year of manufacture, fuel type, and engine capacity
+        for the given UK registration number.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VehicleLookupRequest"
+      responses:
+        "200":
+          description: Vehicle details returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VehicleLookupResult"
+        "400":
+          description: Invalid registration number
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Vehicle not found in DVLA records
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: DVLA API key not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /vehicle/mot/{registration}:
+    get:
+      operationId: getMotHistory
+      tags: [vehicle]
+      summary: Get MOT test history from DVSA
+      description: >
+        Proxies the DVSA MOT History API. Returns full MOT test history,
+        advisories, failures, and mileage readings.
+      parameters:
+        - name: registration
+          in: path
+          required: true
+          schema:
+            type: string
+          description: UK vehicle registration number (e.g. AB12CDE)
+      responses:
+        "200":
+          description: MOT history returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MotHistoryResult"
+        "404":
+          description: No MOT records found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: DVSA API key not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    OcrFileInput:
+      type: object
+      required: [fileData, mimeType]
+      properties:
+        fileData:
+          type: string
+          description: Base64-encoded file content
+        mimeType:
+          type: string
+          description: MIME type (image/jpeg, image/png, application/pdf)
+        fileName:
+          type: string
+          description: Original filename
+
+    OcrResult:
+      type: object
+      required: [rawText]
+      properties:
+        pcnReference:
+          type: ["string", "null"]
+          description: PCN reference number extracted
+        issuer:
+          type: ["string", "null"]
+          description: Issuing authority or council name
+        issueDate:
+          type: ["string", "null"]
+          description: Date of issue in YYYY-MM-DD format
+        amount:
+          type: ["number", "null"]
+          description: Fine amount in GBP
+        dueDate:
+          type: ["string", "null"]
+          description: Payment due date in YYYY-MM-DD format
+        location:
+          type: ["string", "null"]
+          description: Location where the fine was issued
+        rawText:
+          type: string
+          description: Full raw OCR text
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    VehicleLookupRequest:
+      type: object
+      required: [registrationNumber]
+      properties:
+        registrationNumber:
+          type: string
+          description: UK vehicle registration number (spaces are stripped automatically)
+
+    VehicleLookupResult:
+      type: object
+      required: [registrationNumber]
+      properties:
+        registrationNumber:
+          type: string
+        make:
+          type: ["string", "null"]
+        colour:
+          type: ["string", "null"]
+        yearOfManufacture:
+          type: ["integer", "null"]
+        engineCapacity:
+          type: ["integer", "null"]
+          description: Engine capacity in cc
+        fuelType:
+          type: ["string", "null"]
+        taxStatus:
+          type: ["string", "null"]
+          description: e.g. "Taxed", "Untaxed", "SORN"
+        taxDueDate:
+          type: ["string", "null"]
+          description: Tax expiry date in YYYY-MM-DD format
+        motStatus:
+          type: ["string", "null"]
+          description: e.g. "Valid", "Not valid", "No details held by DVLA"
+        motExpiryDate:
+          type: ["string", "null"]
+          description: MOT expiry date in YYYY-MM-DD format
+
+    MotDefect:
+      type: object
+      properties:
+        text:
+          type: ["string", "null"]
+          description: Description of the defect or advisory
+        type:
+          type: ["string", "null"]
+          description: "ADVISORY, MINOR, MAJOR, DANGEROUS, or FAIL"
+        dangerous:
+          type: ["boolean", "null"]
+
+    MotTest:
+      type: object
+      properties:
+        completedDate:
+          type: ["string", "null"]
+          description: Date the MOT test was completed
+        testResult:
+          type: ["string", "null"]
+          description: "PASSED or FAILED"
+        expiryDate:
+          type: ["string", "null"]
+          description: MOT certificate expiry date (for passes)
+        odometerValue:
+          type: ["integer", "null"]
+        odometerUnit:
+          type: ["string", "null"]
+          description: "mi or km"
+        motTestNumber:
+          type: ["string", "null"]
+        defects:
+          type: array
+          items:
+            $ref: "#/components/schemas/MotDefect"
+
+    MotHistoryResult:
+      type: object
+      properties:
+        registration:
+          type: ["string", "null"]
+        make:
+          type: ["string", "null"]
+        model:
+          type: ["string", "null"]
+        firstUsedDate:
+          type: ["string", "null"]
+        fuelType:
+          type: ["string", "null"]
+        primaryColour:
+          type: ["string", "null"]
+        motTests:
+          type: array
+          items:
+            $ref: "#/components/schemas/MotTest"

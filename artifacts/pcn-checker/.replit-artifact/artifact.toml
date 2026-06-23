@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "PCN Checker"
+version = "1.0.0"
+id = "artifacts/pcn-checker"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 5173
+
+[services.development]
+run = "pnpm --filter @workspace/pcn-checker run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/pcn-checker", "run", "build" ]
+publicDir = "artifacts/pcn-checker/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "5173"
+BASE_PATH = "/"

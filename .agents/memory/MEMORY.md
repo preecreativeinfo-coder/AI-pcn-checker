@@ -1,0 +1,1 @@
+- [Vite workflow port detection](vite-workflow-port-detection.md) — use configureWorkflow WITHOUT waitForPort for Vite dev servers; restart_workflow always fails with "didn't open port" due to network namespace isolation.
