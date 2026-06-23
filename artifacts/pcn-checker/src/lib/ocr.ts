@@ -1,26 +1,26 @@
-import { Router, type IRouter } from "express";
-import { createWorker } from "tesseract.js";
-import { createRequire } from "module";
-const require = createRequire(import.meta.url);
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const pdfParse: (buffer: Buffer) => Promise<{ text: string }> = require("pdf-parse");
-import { ProcessOcrBody, ProcessOcrResponse } from "@workspace/api-zod";
-import { logger } from "../lib/logger";
+import Tesseract from "tesseract.js";
+import * as pdfjsLib from "pdfjs-dist";
+// Vite resolves this to a hashed URL for the pdf.js worker bundle.
+import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
-const router: IRouter = Router();
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
-function extractPcnFields(text: string): {
+export interface OcrResult {
   pcnReference: string | null;
   issuer: string | null;
   issueDate: string | null;
   amount: number | null;
   dueDate: string | null;
   location: string | null;
-} {
-  const lines = text.split(/\r?\n/).map((l) => l.trim());
-  const fullText = text.toUpperCase();
+  rawText: string;
+}
 
-  // PCN Reference: typically alphanumeric, 8-14 chars
+/**
+ * Extract structured PCN fields from raw OCR/PDF text.
+ * Ported verbatim from the former server-side OCR route so behaviour matches.
+ */
+function extractPcnFields(text: string): Omit<OcrResult, "rawText"> {
+  // PCN Reference: typically alphanumeric, 6-14 chars
   let pcnReference: string | null = null;
   const refPatterns = [
     /PCN(?:\s*(?:NO|NUMBER|REF|REFERENCE|#|:))?\s*[:\-]?\s*([A-Z0-9]{6,14})/i,
@@ -138,47 +138,56 @@ function extractPcnFields(text: string): {
   return { pcnReference, issuer, issueDate, amount, dueDate, location };
 }
 
-router.post("/ocr/process", async (req, res): Promise<void> => {
-  const parsed = ProcessOcrBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
+async function ocrImage(image: Blob | HTMLCanvasElement): Promise<string> {
+  const { data } = await Tesseract.recognize(image, "eng");
+  return data.text;
+}
+
+async function extractPdfText(buffer: ArrayBuffer): Promise<string> {
+  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+  let text = "";
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    const pageText = content.items
+      .map((item) => ("str" in item ? item.str : ""))
+      .join(" ");
+    text += pageText + "\n";
   }
+  return text;
+}
 
-  const { fileData, mimeType } = parsed.data;
+async function ocrPdfFirstPage(buffer: ArrayBuffer): Promise<string> {
+  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+  const page = await pdf.getPage(1);
+  const viewport = page.getViewport({ scale: 2 });
+  const canvas = document.createElement("canvas");
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Could not get canvas context for PDF rendering");
+  await page.render({ canvasContext: context, viewport }).promise;
+  return ocrImage(canvas);
+}
 
+/**
+ * Run OCR on an uploaded PCN file entirely in the browser.
+ * - Images: Tesseract.js
+ * - PDFs: pdf.js text layer; falls back to rendering + Tesseract for scanned PDFs
+ */
+export async function runOcr(file: File): Promise<OcrResult> {
   let rawText = "";
 
-  try {
-    if (mimeType === "application/pdf") {
-      // PDF: extract text directly
-      const buffer = Buffer.from(fileData, "base64");
-      const data = await pdfParse(buffer);
-      rawText = data.text;
-    } else {
-      // Image: use Tesseract OCR
-      const buffer = Buffer.from(fileData, "base64");
-      const worker = await createWorker("eng");
-      try {
-        const result = await worker.recognize(buffer);
-        rawText = result.data.text;
-      } finally {
-        await worker.terminate();
-      }
+  if (file.type === "application/pdf") {
+    const buffer = await file.arrayBuffer();
+    rawText = await extractPdfText(buffer);
+    if (!rawText.trim()) {
+      // Scanned PDF with no text layer — render the first page and OCR it.
+      rawText = await ocrPdfFirstPage(await file.arrayBuffer());
     }
-
-    const fields = extractPcnFields(rawText);
-
-    const response = ProcessOcrResponse.parse({
-      ...fields,
-      rawText,
-    });
-
-    res.json(response);
-  } catch (err) {
-    req.log.error({ err }, "OCR processing failed");
-    res.status(500).json({ error: "OCR processing failed" });
+  } else {
+    rawText = await ocrImage(file);
   }
-});
 
-export default router;
+  return { ...extractPcnFields(rawText), rawText };
+}

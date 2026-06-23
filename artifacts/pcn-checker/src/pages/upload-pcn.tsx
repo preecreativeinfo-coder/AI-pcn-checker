@@ -7,7 +7,7 @@ import { UploadCloud, File, AlertCircle, CheckCircle2, Loader2, ArrowLeft } from
 import { AppLayout } from "@/components/layout/app-layout";
 import { useVehicles } from "@/hooks/use-vehicles";
 import { useCreatePCN } from "@/hooks/use-pcns";
-import { useProcessOcr } from "@workspace/api-client-react";
+import { runOcr } from "@/lib/ocr";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
@@ -59,7 +59,6 @@ export default function UploadPCNPage() {
 
   const { data: vehicles } = useVehicles();
   const createPCN = useCreatePCN();
-  const processOcr = useProcessOcr();
 
   const form = useForm<PCNFormValues>({
     resolver: zodResolver(pcnFormSchema),
@@ -92,62 +91,36 @@ export default function UploadPCNPage() {
     setStep("processing");
 
     try {
-      const reader = new FileReader();
-      reader.readAsDataURL(selectedFile);
-      
-      reader.onload = async () => {
-        const base64String = (reader.result as string).split(",")[1];
-        
-        try {
-          const result = await processOcr.mutateAsync({
-            data: {
-              fileData: base64String,
-              mimeType: selectedFile.type,
-              fileName: selectedFile.name,
-            }
-          });
+      // OCR runs entirely in the browser (Tesseract.js for images, pdf.js for PDFs).
+      const result = await runOcr(selectedFile);
 
-          // Pre-fill form
-          form.reset({
-            pcn_reference: result.pcnReference || "",
-            issuer: result.issuer || "",
-            issue_date: result.issueDate || "",
-            amount: result.amount || 0,
-            due_date: result.dueDate || "",
-            location: result.location || "",
-            vehicle_id: "none",
-            status: "pending",
-          });
-          
-          setRawOcrText(result.rawText || null);
-          setStep("form");
-          
-          toast({
-            title: "Processing complete",
-            description: "Please verify the extracted details below.",
-          });
-        } catch (error) {
-          console.error("OCR Error:", error);
-          toast({
-            variant: "destructive",
-            title: "Failed to process notice",
-            description: "We couldn't read the file automatically. You can enter the details manually.",
-          });
-          setStep("form"); // Let them fill it manually
-        }
-      };
-      
-      reader.onerror = () => {
-        throw new Error("Failed to read file");
-      };
+      // Pre-fill form
+      form.reset({
+        pcn_reference: result.pcnReference || "",
+        issuer: result.issuer || "",
+        issue_date: result.issueDate || "",
+        amount: result.amount || 0,
+        due_date: result.dueDate || "",
+        location: result.location || "",
+        vehicle_id: "none",
+        status: "pending",
+      });
+
+      setRawOcrText(result.rawText || null);
+      setStep("form");
+
+      toast({
+        title: "Processing complete",
+        description: "Please verify the extracted details below.",
+      });
     } catch (error) {
+      console.error("OCR Error:", error);
       toast({
         variant: "destructive",
-        title: "Error reading file",
-        description: "Please try uploading the file again.",
+        title: "Failed to process notice",
+        description: "We couldn't read the file automatically. You can enter the details manually.",
       });
-      setStep("upload");
-      setFile(null);
+      setStep("form"); // Let them fill it manually
     }
   };
 
