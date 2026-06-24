@@ -78,6 +78,9 @@ importers:
 
   .:
     devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.2
       '@vercel/node':
         specifier: ^5.1.0
         version: 5.8.17(rollup@4.60.3)
