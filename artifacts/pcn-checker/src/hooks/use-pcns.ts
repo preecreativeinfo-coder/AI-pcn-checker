@@ -2,6 +2,23 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 
+export type PCNStatus =
+  | "pending"
+  | "paid"
+  | "contested"
+  | "appealed"
+  | "cancelled";
+
+export interface AiAnalysis {
+  likelihood: "low" | "moderate" | "high";
+  score: number; // 0–100 estimated chance of a successful challenge
+  summary: string;
+  grounds: { title: string; rationale: string }[];
+  recommendations: string[];
+  generatedAt: string;
+  model: string;
+}
+
 export interface PCN {
   id: string;
   user_id: string;
@@ -10,11 +27,13 @@ export interface PCN {
   issuer: string;
   issue_date: string | null;
   amount: number | null;
-  status: "pending" | "paid" | "contested";
+  status: PCNStatus;
   due_date: string | null;
   location: string | null;
+  contravention_code: string | null;
   file_path: string | null;
   ocr_raw_text: string | null;
+  ai_analysis: AiAnalysis | null;
   created_at: string;
   updated_at: string;
 }
@@ -75,6 +94,27 @@ export function useCreatePCN() {
         
       if (error) throw error;
       return data as PCN;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pcns", session?.user?.id] });
+    },
+  });
+}
+
+export function useDeletePCN() {
+  const queryClient = useQueryClient();
+  const { session } = useAuth();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      if (!session?.user?.id) throw new Error("Not authenticated");
+      const { error } = await supabase
+        .from("pcns")
+        .delete()
+        .eq("id", id)
+        .eq("user_id", session.user.id);
+
+      if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["pcns", session?.user?.id] });

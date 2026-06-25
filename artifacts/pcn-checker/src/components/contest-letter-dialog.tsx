@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, type ReactNode } from "react";
 import { format } from "date-fns";
 import { Copy, Download, FileText, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -100,6 +100,8 @@ interface ContestLetterDialogProps {
   vehicleRegistration?: string;
   userEmail?: string;
   onContested?: () => void;
+  /** Optional custom trigger; falls back to the default "Contest Letter" button. */
+  trigger?: ReactNode;
 }
 
 function generateLetter(
@@ -156,6 +158,7 @@ export function ContestLetterDialog({
   vehicleRegistration,
   userEmail,
   onContested,
+  trigger,
 }: ContestLetterDialogProps) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
@@ -218,12 +221,14 @@ export function ContestLetterDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button
-          variant="outline"
-          className="bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-800 border-blue-200"
-        >
-          <ShieldAlert className="mr-2 h-4 w-4" /> Contest Letter
-        </Button>
+        {trigger ?? (
+          <Button
+            variant="outline"
+            className="bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-800 border-blue-200"
+          >
+            <ShieldAlert className="mr-2 h-4 w-4" /> Contest Letter
+          </Button>
+        )}
       </DialogTrigger>
 
       <DialogContent className="w-[95vw] max-w-4xl p-0 gap-0 max-h-[90vh] flex flex-col">

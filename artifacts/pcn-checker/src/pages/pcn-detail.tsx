@@ -1,21 +1,38 @@
-import { useState, useEffect } from "react";
-import { Link } from "wouter";
-import { format, differenceInDays } from "date-fns";
-import { ArrowLeft, Clock, CreditCard, Edit2, FileText, Image as ImageIcon, MapPin, Save, ShieldAlert, X } from "lucide-react";
+import { useState, useEffect, type ReactNode } from "react";
+import { Link, useLocation } from "wouter";
+import { format, differenceInCalendarDays } from "date-fns";
+import {
+  AlertTriangle,
+  ChevronLeft,
+  CreditCard,
+  ExternalLink,
+  FileText,
+  Pencil,
+  Save,
+  Sparkles,
+  Trash2,
+  X,
+} from "lucide-react";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { AppLayout } from "@/components/layout/app-layout";
-import { usePCN, useUpdatePCN } from "@/hooks/use-pcns";
+import { usePCN, useUpdatePCN, useDeletePCN, type PCNStatus } from "@/hooks/use-pcns";
 import { useVehicles } from "@/hooks/use-vehicles";
+import { useAnalyzePCN } from "@/hooks/use-analyze-pcn";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { ContestLetterDialog } from "@/components/contest-letter-dialog";
+import { contraventionDescription } from "@/lib/contravention-codes";
+import { paymentPortal } from "@/lib/payment-portals";
+import { PCN_STATUSES, statusClass, statusLabel } from "@/lib/pcn-status";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Form,
   FormControl,
@@ -31,7 +48,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 const updatePcnSchema = z.object({
   pcn_reference: z.string().min(1, "Reference number is required"),
@@ -40,18 +68,43 @@ const updatePcnSchema = z.object({
   amount: z.coerce.number().min(0, "Amount must be a positive number"),
   due_date: z.string().optional().nullable(),
   location: z.string().optional().nullable(),
+  contravention_code: z.string().optional().nullable(),
   vehicle_id: z.string().optional().nullable(),
 });
+
+const LIKELIHOOD_STYLE: Record<string, string> = {
+  high: "bg-green-100 text-green-800 border-green-200",
+  moderate: "bg-amber-100 text-amber-800 border-amber-200",
+  low: "bg-rose-100 text-rose-800 border-rose-200",
+};
+
+function Field({ label, icon, children }: { label: string; icon: ReactNode; children: ReactNode }) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+        {icon}
+      </span>
+      <div className="min-w-0">
+        <div className="text-xs text-muted-foreground">{label}</div>
+        <div className="text-sm font-medium">{children}</div>
+      </div>
+    </div>
+  );
+}
 
 export default function PCNDetailPage({ id }: { id: string }) {
   const { data: pcn, isLoading } = usePCN(id);
   const { data: vehicles } = useVehicles();
   const updatePcn = useUpdatePCN();
+  const deletePcn = useDeletePCN();
+  const analyze = useAnalyzePCN();
   const { toast } = useToast();
   const { session } = useAuth();
-  
+  const [, setLocation] = useLocation();
+
   const [isEditing, setIsEditing] = useState(false);
   const [fileUrl, setFileUrl] = useState<string | null>(null);
+  const [tab, setTab] = useState("overview");
 
   const form = useForm<z.infer<typeof updatePcnSchema>>({
     resolver: zodResolver(updatePcnSchema),
@@ -66,9 +119,10 @@ export default function PCNDetailPage({ id }: { id: string }) {
         amount: pcn.amount || 0,
         due_date: pcn.due_date || "",
         location: pcn.location || "",
+        contravention_code: pcn.contravention_code || "",
         vehicle_id: pcn.vehicle_id || "none",
       });
-      
+
       if (pcn.file_path) {
         supabase.storage
           .from("pcn-files")
@@ -80,19 +134,12 @@ export default function PCNDetailPage({ id }: { id: string }) {
     }
   }, [pcn, form]);
 
-  const onUpdateStatus = async (status: "pending" | "paid" | "contested") => {
+  const onUpdateStatus = async (status: PCNStatus) => {
     try {
       await updatePcn.mutateAsync({ id, status });
-      toast({
-        title: "Status updated",
-        description: `PCN marked as ${status}.`,
-      });
+      toast({ title: "Status updated", description: `Marked as ${statusLabel(status)}.` });
     } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Update failed",
-        description: error.message || "An error occurred.",
-      });
+      toast({ variant: "destructive", title: "Update failed", description: error.message });
     }
   };
 
@@ -106,19 +153,33 @@ export default function PCNDetailPage({ id }: { id: string }) {
         amount: values.amount,
         due_date: values.due_date || null,
         location: values.location || null,
+        contravention_code: values.contravention_code || null,
         vehicle_id: values.vehicle_id === "none" ? null : values.vehicle_id,
       });
       setIsEditing(false);
-      toast({
-        title: "Details updated",
-        description: "PCN information has been saved.",
-      });
+      toast({ title: "Details updated", description: "PCN information has been saved." });
     } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Update failed",
-        description: error.message || "An error occurred.",
-      });
+      toast({ variant: "destructive", title: "Update failed", description: error.message });
+    }
+  };
+
+  const onDelete = async () => {
+    try {
+      await deletePcn.mutateAsync(id);
+      toast({ title: "Notice deleted" });
+      setLocation("/pcns");
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Delete failed", description: error.message });
+    }
+  };
+
+  const runAnalysis = async () => {
+    if (!pcn) return;
+    setTab("ai");
+    try {
+      await analyze.mutateAsync(pcn);
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "AI Analysis failed", description: error.message });
     }
   };
 
@@ -136,12 +197,12 @@ export default function PCNDetailPage({ id }: { id: string }) {
   if (!pcn) {
     return (
       <AppLayout>
-        <div className="text-center py-12">
+        <div className="py-12 text-center">
           <h2 className="text-2xl font-bold">Notice not found</h2>
-          <p className="text-muted-foreground mt-2">The PCN you are looking for doesn't exist.</p>
-          <Link href="/pcns">
-            <Button className="mt-4">Back to PCNs</Button>
-          </Link>
+          <p className="mt-2 text-muted-foreground">The PCN you are looking for doesn't exist.</p>
+          <Button className="mt-4" asChild>
+            <Link href="/pcns">Back to PCNs</Link>
+          </Button>
         </div>
       </AppLayout>
     );
@@ -149,87 +210,116 @@ export default function PCNDetailPage({ id }: { id: string }) {
 
   const today = new Date();
   const dueDate = pcn.due_date ? new Date(pcn.due_date) : null;
-  const daysLeft = dueDate ? differenceInDays(dueDate, today) : null;
-  const isOverdue = daysLeft !== null && daysLeft < 0;
-
-  const linkedVehicle = pcn.vehicle_id ? vehicles?.find(v => v.id === pcn.vehicle_id) : null;
+  const daysLeft = dueDate ? differenceInCalendarDays(dueDate, today) : null;
+  const isOverdue = daysLeft !== null && daysLeft < 0 && pcn.status === "pending";
+  const linkedVehicle = pcn.vehicle_id ? vehicles?.find((v) => v.id === pcn.vehicle_id) : null;
+  const allegedContravention = contraventionDescription(pcn.contravention_code);
+  const portal = paymentPortal(pcn.issuer);
+  const showPay = pcn.status !== "paid" && pcn.status !== "cancelled";
+  const analysis = analyze.data ?? pcn.ai_analysis;
 
   return (
     <AppLayout>
-      <div className="max-w-5xl mx-auto space-y-5">
-        {/* Header row — back + title */}
-        <div className="flex items-start gap-3">
-          <Link href="/pcns">
-            <Button variant="ghost" size="icon" className="shrink-0 mt-0.5" data-testid="btn-back">
-              <ArrowLeft className="h-4 w-4" />
+      <div className="mx-auto max-w-4xl space-y-5">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-2">
+            <Button variant="ghost" size="icon" className="mt-0.5 shrink-0" asChild>
+              <Link href="/pcns" aria-label="Back">
+                <ChevronLeft className="h-4 w-4" />
+              </Link>
             </Button>
-          </Link>
-          <div className="flex-1 min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl sm:text-2xl font-bold tracking-tight truncate">{pcn.pcn_reference}</h1>
-              <Badge variant="outline" className={
-                pcn.status === 'pending' ? 'bg-amber-100 text-amber-800 border-amber-200' :
-                pcn.status === 'paid' ? 'bg-green-100 text-green-800 border-green-200' :
-                'bg-blue-100 text-blue-800 border-blue-200'
-              }>
-                {pcn.status.charAt(0).toUpperCase() + pcn.status.slice(1)}
-              </Badge>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="truncate text-xl font-bold tracking-tight sm:text-2xl">{pcn.pcn_reference}</h1>
+                <Badge variant="outline" className={statusClass(pcn.status)}>
+                  {statusLabel(pcn.status)}
+                </Badge>
+              </div>
+              <p className="mt-1 truncate text-sm text-muted-foreground">{pcn.issuer}</p>
             </div>
-            <p className="text-muted-foreground mt-1 text-sm truncate">{pcn.issuer}</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button variant="ghost" size="icon" onClick={() => { setTab("overview"); setIsEditing((v) => !v); }} aria-label="Edit">
+              <Pencil className="h-4 w-4" />
+            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="ghost" size="icon" className="text-rose-600 hover:text-rose-700" aria-label="Delete">
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete this notice?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This permanently removes {pcn.pcn_reference} and its analysis. This cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction className="bg-rose-600 hover:bg-rose-700" onClick={onDelete}>
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         </div>
 
-        {/* Action buttons — full-width row on mobile */}
-        <div className="flex flex-wrap gap-2">
-          {pcn.status !== "paid" && (
-            <Button 
-              variant="outline" 
-              size="sm"
-              className="bg-green-50 text-green-700 hover:bg-green-100 hover:text-green-800 border-green-200"
-              onClick={() => onUpdateStatus("paid")}
-              data-testid="btn-mark-paid"
-            >
-              <CreditCard className="mr-2 h-4 w-4" /> Mark Paid
-            </Button>
-          )}
-          <ContestLetterDialog
-            pcn={pcn}
-            vehicleRegistration={linkedVehicle?.registration_number}
-            userEmail={session?.user?.email}
-            onContested={() => onUpdateStatus("contested")}
-          />
-          {pcn.status !== "pending" && (
-            <Button 
-              variant="outline"
-              size="sm"
-              onClick={() => onUpdateStatus("pending")}
-              data-testid="btn-mark-pending"
-            >
-              Set Pending
-            </Button>
-          )}
-        </div>
+        {/* Overdue banner */}
+        {isOverdue && daysLeft !== null && (
+          <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            Overdue by {Math.abs(daysLeft)} day{Math.abs(daysLeft) === 1 ? "" : "s"}!
+          </div>
+        )}
 
-        <div className="grid gap-6 md:grid-cols-3">
-          <div className="md:col-span-2 space-y-6">
+        {/* Pay online banner */}
+        {showPay && (
+          <a
+            href={portal.url}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center justify-between gap-3 rounded-lg bg-green-600 px-4 py-3 text-white transition-colors hover:bg-green-700"
+          >
+            <div className="flex items-center gap-3">
+              <CreditCard className="h-5 w-5 shrink-0" />
+              <div>
+                <div className="text-sm font-semibold">Pay this PCN online</div>
+                <div className="text-xs text-white/80">
+                  {portal.known ? `Go to ${pcn.issuer} payment portal` : "Find your council's payment page on gov.uk"}
+                </div>
+              </div>
+            </div>
+            <ExternalLink className="h-4 w-4 shrink-0" />
+          </a>
+        )}
+
+        {/* Tabs */}
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList>
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="ai">
+              AI Analysis
+              {analysis && <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-purple-500" />}
+            </TabsTrigger>
+            <TabsTrigger value="appeal">
+              Appeal Letter
+              {(pcn.status === "contested" || pcn.status === "appealed") && (
+                <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-green-500" />
+              )}
+            </TabsTrigger>
+          </TabsList>
+
+          {/* ── Overview ── */}
+          <TabsContent value="overview" className="mt-4">
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2 border-b">
-                <CardTitle className="text-base font-semibold">Notice Details</CardTitle>
-                {!isEditing ? (
-                  <Button variant="ghost" size="sm" onClick={() => setIsEditing(true)} data-testid="btn-edit">
-                    <Edit2 className="h-4 w-4 mr-2" /> Edit
-                  </Button>
-                ) : (
-                  <Button variant="ghost" size="sm" onClick={() => setIsEditing(false)}>
-                    <X className="h-4 w-4 mr-2" /> Cancel
-                  </Button>
-                )}
-              </CardHeader>
-              <CardContent className="pt-6">
+              <CardContent className="p-5">
                 {isEditing ? (
                   <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                         <FormField control={form.control} name="pcn_reference" render={({ field }) => (
                           <FormItem><FormLabel>Reference</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
                         )} />
@@ -245,14 +335,17 @@ export default function PCNDetailPage({ id }: { id: string }) {
                         <FormField control={form.control} name="amount" render={({ field }) => (
                           <FormItem><FormLabel>Amount (£)</FormLabel><FormControl><Input type="number" step="0.01" {...field} /></FormControl><FormMessage /></FormItem>
                         )} />
+                        <FormField control={form.control} name="contravention_code" render={({ field }) => (
+                          <FormItem><FormLabel>Contravention Code</FormLabel><FormControl><Input {...field} value={field.value || ""} placeholder="e.g. 11" /></FormControl><FormMessage /></FormItem>
+                        )} />
                         <FormField control={form.control} name="vehicle_id" render={({ field }) => (
                           <FormItem>
                             <FormLabel>Vehicle</FormLabel>
-                            <Select onValueChange={field.onChange} defaultValue={field.value || "none"}>
+                            <Select onValueChange={field.onChange} value={field.value || "none"}>
                               <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
                               <SelectContent>
                                 <SelectItem value="none">None</SelectItem>
-                                {vehicles?.map(v => <SelectItem key={v.id} value={v.id}>{v.registration_number}</SelectItem>)}
+                                {vehicles?.map((v) => <SelectItem key={v.id} value={v.id}>{v.registration_number}</SelectItem>)}
                               </SelectContent>
                             </Select>
                             <FormMessage />
@@ -262,50 +355,66 @@ export default function PCNDetailPage({ id }: { id: string }) {
                       <FormField control={form.control} name="location" render={({ field }) => (
                         <FormItem><FormLabel>Location</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl><FormMessage /></FormItem>
                       )} />
-                      <div className="flex justify-end">
-                        <Button type="submit" data-testid="btn-save-edit"><Save className="h-4 w-4 mr-2" /> Save Changes</Button>
+                      <div className="flex justify-end gap-2">
+                        <Button type="button" variant="ghost" onClick={() => setIsEditing(false)}>
+                          <X className="mr-2 h-4 w-4" /> Cancel
+                        </Button>
+                        <Button type="submit"><Save className="mr-2 h-4 w-4" /> Save Changes</Button>
                       </div>
                     </form>
                   </Form>
                 ) : (
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-y-6 gap-x-4">
-                    <div>
-                      <div className="text-sm font-medium text-muted-foreground flex items-center mb-1">
-                        <CreditCard className="h-4 w-4 mr-1.5" /> Amount
+                  <div className="space-y-5">
+                    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                      <Field label="Issue Date" icon={<FileText className="h-4 w-4" />}>
+                        {pcn.issue_date ? format(new Date(pcn.issue_date), "dd MMM yyyy") : "—"}
+                      </Field>
+                      <Field label="Due Date" icon={<FileText className="h-4 w-4" />}>
+                        {pcn.due_date ? format(new Date(pcn.due_date), "dd MMM yyyy") : "—"}
+                      </Field>
+                      <Field label="Amount" icon={<CreditCard className="h-4 w-4" />}>
+                        {pcn.amount != null ? `£${pcn.amount.toFixed(2)}` : "—"}
+                      </Field>
+                      <Field label="Discounted (14 days)" icon={<CreditCard className="h-4 w-4" />}>
+                        {pcn.amount != null ? `£${(pcn.amount / 2).toFixed(2)}` : "—"}
+                      </Field>
+                      <Field label="Vehicle" icon={<FileText className="h-4 w-4" />}>
+                        {linkedVehicle ? linkedVehicle.registration_number : "—"}
+                      </Field>
+                      <Field label="Contravention Code" icon={<FileText className="h-4 w-4" />}>
+                        {pcn.contravention_code || "—"}
+                      </Field>
+                      <div className="sm:col-span-2">
+                        <Field label="Location" icon={<FileText className="h-4 w-4" />}>
+                          {pcn.location || "—"}
+                        </Field>
                       </div>
-                      <div className="text-lg font-semibold">£{pcn.amount?.toFixed(2)}</div>
                     </div>
-                    <div>
-                      <div className="text-sm font-medium text-muted-foreground flex items-center mb-1">
-                        <Clock className="h-4 w-4 mr-1.5" /> Due Date
+
+                    {allegedContravention && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                        <div className="text-xs font-medium text-amber-700">Alleged Contravention</div>
+                        <div className="mt-0.5 text-sm text-amber-900">{allegedContravention}</div>
                       </div>
-                      <div className="text-base">
-                        {pcn.due_date ? format(new Date(pcn.due_date), 'dd MMM yyyy') : '-'}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-sm font-medium text-muted-foreground flex items-center mb-1">
-                        <FileText className="h-4 w-4 mr-1.5" /> Issue Date
-                      </div>
-                      <div className="text-base">
-                        {pcn.issue_date ? format(new Date(pcn.issue_date), 'dd MMM yyyy') : '-'}
-                      </div>
-                    </div>
-                    <div className="col-span-2 md:col-span-3">
-                      <div className="text-sm font-medium text-muted-foreground flex items-center mb-1">
-                        <MapPin className="h-4 w-4 mr-1.5" /> Location
-                      </div>
-                      <div className="text-base">{pcn.location || '-'}</div>
-                    </div>
-                    <div className="col-span-2 md:col-span-3">
-                      <div className="text-sm font-medium text-muted-foreground mb-1">Linked Vehicle</div>
-                      {linkedVehicle ? (
-                        <div className="inline-flex items-center px-3 py-1 rounded-md bg-secondary text-secondary-foreground font-medium">
-                          {linkedVehicle.registration_number} <span className="mx-2 text-muted-foreground/50">|</span> <span className="font-normal">{linkedVehicle.make} {linkedVehicle.model}</span>
-                        </div>
-                      ) : (
-                        <div className="text-sm text-muted-foreground">No vehicle linked</div>
-                      )}
+                    )}
+
+                    {fileUrl && (
+                      <a href={fileUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm text-primary hover:underline">
+                        <FileText className="h-4 w-4" /> View original document
+                      </a>
+                    )}
+
+                    {/* Status control */}
+                    <div className="flex items-center gap-3 border-t pt-4">
+                      <span className="text-sm text-muted-foreground">Status</span>
+                      <Select value={pcn.status} onValueChange={(v) => onUpdateStatus(v as PCNStatus)}>
+                        <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {PCN_STATUSES.map((s) => (
+                            <SelectItem key={s} value={s}>{statusLabel(s)}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                 )}
@@ -313,65 +422,132 @@ export default function PCNDetailPage({ id }: { id: string }) {
             </Card>
 
             {pcn.ocr_raw_text && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base font-semibold">Extracted Text</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="bg-muted p-4 rounded-md text-xs font-mono whitespace-pre-wrap max-h-60 overflow-y-auto">
-                    {pcn.ocr_raw_text}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-
-          <div className="space-y-6">
-            {pcn.status === "pending" && daysLeft !== null && (
-              <Card className={isOverdue ? "border-destructive bg-destructive/5" : daysLeft <= 3 ? "border-amber-300 bg-amber-50" : ""}>
-                <CardContent className="p-6 text-center">
-                  <div className="text-3xl font-bold mb-1">
-                    {isOverdue ? Math.abs(daysLeft) : daysLeft}
-                  </div>
-                  <div className={`text-sm font-medium ${isOverdue ? "text-destructive" : "text-muted-foreground"}`}>
-                    {isOverdue ? "Days Overdue" : "Days Remaining"}
-                  </div>
-                </CardContent>
-              </Card>
+              <details className="mt-4 rounded-lg border bg-card p-4">
+                <summary className="cursor-pointer text-sm font-medium">Extracted text from document</summary>
+                <pre className="mt-3 max-h-60 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-xs font-mono">
+                  {pcn.ocr_raw_text}
+                </pre>
+              </details>
             )}
 
+            {/* Bottom actions */}
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <Button
+                className="bg-purple-600 hover:bg-purple-700"
+                onClick={runAnalysis}
+                disabled={analyze.isPending}
+              >
+                <Sparkles className="mr-2 h-4 w-4" />
+                {analyze.isPending ? "Analysing…" : "AI Analysis"}
+              </Button>
+              <Button className="bg-green-600 hover:bg-green-700" onClick={() => setTab("appeal")}>
+                <FileText className="mr-2 h-4 w-4" /> New Appeal Letter
+              </Button>
+            </div>
+          </TabsContent>
+
+          {/* ── AI Analysis ── */}
+          <TabsContent value="ai" className="mt-4">
             <Card>
-              <CardHeader>
-                <CardTitle className="text-base font-semibold flex items-center">
-                  <ImageIcon className="h-5 w-5 mr-2" /> Original Document
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {fileUrl ? (
-                  <div className="border rounded-md overflow-hidden bg-muted flex items-center justify-center min-h-64">
-                    {pcn.file_path?.endsWith('.pdf') ? (
-                      <div className="p-8 flex flex-col items-center justify-center text-center">
-                        <FileText className="h-12 w-12 text-muted-foreground mb-4" />
-                        <a href={fileUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline text-sm font-medium">
-                          View PDF Document
-                        </a>
+              <CardContent className="p-5">
+                {analyze.isPending ? (
+                  <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+                    <Sparkles className="h-8 w-8 animate-pulse text-purple-500" />
+                    <p className="text-sm text-muted-foreground">Analysing this notice with AI…</p>
+                  </div>
+                ) : analysis ? (
+                  <div className="space-y-5">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Badge variant="outline" className={LIKELIHOOD_STYLE[analysis.likelihood]}>
+                        {statusLabel(analysis.likelihood)} chance of success
+                      </Badge>
+                      <div className="flex-1 min-w-40">
+                        <Progress value={analysis.score} className="h-2" />
                       </div>
-                    ) : (
-                      <a href={fileUrl} target="_blank" rel="noreferrer" className="block w-full">
-                        <img src={fileUrl} alt="PCN Document" className="w-full h-auto object-contain max-h-96" />
-                      </a>
+                      <span className="text-sm font-semibold">{analysis.score}%</span>
+                    </div>
+
+                    <p className="text-sm leading-relaxed">{analysis.summary}</p>
+
+                    {analysis.grounds.length > 0 && (
+                      <div>
+                        <h3 className="mb-2 text-sm font-semibold">Potential grounds</h3>
+                        <div className="space-y-2">
+                          {analysis.grounds.map((g, i) => (
+                            <div key={i} className="rounded-lg border p-3">
+                              <div className="text-sm font-medium">{g.title}</div>
+                              <div className="mt-0.5 text-sm text-muted-foreground">{g.rationale}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     )}
+
+                    {analysis.recommendations.length > 0 && (
+                      <div>
+                        <h3 className="mb-2 text-sm font-semibold">Recommended next steps</h3>
+                        <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                          {analysis.recommendations.map((r, i) => <li key={i}>{r}</li>)}
+                        </ul>
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-4 text-xs text-muted-foreground">
+                      <span>
+                        Generated {format(new Date(analysis.generatedAt), "dd MMM yyyy, HH:mm")} · {analysis.model}
+                      </span>
+                      <Button variant="outline" size="sm" onClick={runAnalysis} disabled={analyze.isPending}>
+                        <Sparkles className="mr-1.5 h-3.5 w-3.5" /> Re-run
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      AI-generated information, not legal advice. Review carefully and consult a professional for complex cases.
+                    </p>
                   </div>
                 ) : (
-                  <div className="border border-dashed rounded-md p-8 flex flex-col items-center justify-center text-center text-muted-foreground">
-                    <ImageIcon className="h-8 w-8 mb-2 opacity-50" />
-                    <p className="text-sm">No document uploaded</p>
+                  <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+                    <Sparkles className="h-8 w-8 text-purple-500" />
+                    <div>
+                      <p className="text-sm font-medium">No analysis yet</p>
+                      <p className="text-sm text-muted-foreground">
+                        Run an AI assessment of how strong a challenge to this PCN might be.
+                      </p>
+                    </div>
+                    <Button className="bg-purple-600 hover:bg-purple-700" onClick={runAnalysis}>
+                      <Sparkles className="mr-2 h-4 w-4" /> Run AI Analysis
+                    </Button>
                   </div>
                 )}
               </CardContent>
             </Card>
-          </div>
-        </div>
+          </TabsContent>
+
+          {/* ── Appeal Letter ── */}
+          <TabsContent value="appeal" className="mt-4">
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center gap-4 p-8 text-center">
+                <FileText className="h-8 w-8 text-green-600" />
+                <div>
+                  <p className="text-sm font-medium">Generate a formal appeal letter</p>
+                  <p className="text-sm text-muted-foreground">
+                    Choose your grounds and we'll draft a representation letter for {pcn.pcn_reference} you can copy or download.
+                  </p>
+                </div>
+                <ContestLetterDialog
+                  pcn={pcn}
+                  vehicleRegistration={linkedVehicle?.registration_number}
+                  userEmail={session?.user?.email}
+                  onContested={() => onUpdateStatus("contested")}
+                  trigger={
+                    <Button className="bg-green-600 hover:bg-green-700">
+                      <FileText className="mr-2 h-4 w-4" /> New Appeal Letter
+                    </Button>
+                  }
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </AppLayout>
   );
