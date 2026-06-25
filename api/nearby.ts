@@ -4,7 +4,14 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 // Proxies the public Overpass (OpenStreetMap) API and caches the result on
 // Vercel's CDN so repeated dashboard loads don't hammer the upstream endpoint.
 
-const OVERPASS_ENDPOINT = "https://overpass-api.de/api/interpreter";
+// Overpass etiquette: identify the app with a User-Agent, otherwise some
+// mirrors reject server-side requests (HTTP 406/429). We try mirrors in order.
+const OVERPASS_ENDPOINTS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+];
+const USER_AGENT =
+  "AI-PCN-Checker/1.0 (+https://github.com/preecreativeinfo-coder/AI-pcn-checker)";
 const MAX_RADIUS = 10000; // metres
 const RESULT_LIMIT = 20;
 
@@ -68,16 +75,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const amenity = kind === "charging" ? "charging_station" : "parking";
   const fallbackName = kind === "charging" ? "EV Charging Station" : "Parking";
 
-  try {
-    const upstream = await fetch(OVERPASS_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: "data=" + encodeURIComponent(buildQuery(amenity, lat, lon, radius)),
-    });
+  const body = "data=" + encodeURIComponent(buildQuery(amenity, lat, lon, radius));
 
-    if (!upstream.ok) {
-      console.error("Overpass error", upstream.status);
-      res.status(502).json({ error: `Overpass API error (HTTP ${upstream.status})` });
+  try {
+    let upstream: Response | null = null;
+    let lastStatus = 0;
+    for (const endpoint of OVERPASS_ENDPOINTS) {
+      const resp = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "User-Agent": USER_AGENT,
+          Accept: "application/json",
+        },
+        body,
+      });
+      if (resp.ok) {
+        upstream = resp;
+        break;
+      }
+      lastStatus = resp.status;
+      console.error("Overpass error", endpoint, resp.status);
+    }
+
+    if (!upstream) {
+      res.status(502).json({ error: `Overpass API error (HTTP ${lastStatus})` });
       return;
     }
 
