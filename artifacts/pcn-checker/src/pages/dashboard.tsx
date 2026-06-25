@@ -1,11 +1,51 @@
+import type { ReactNode } from "react";
 import { Link } from "wouter";
-import { format, differenceInDays } from "date-fns";
-import { AlertCircle, CheckCircle2, Clock, FileText, PoundSterling } from "lucide-react";
+import { format, differenceInCalendarDays } from "date-fns";
+import {
+  CheckCircle2,
+  Clock,
+  PoundSterling,
+  Scale,
+  UploadCloud,
+} from "lucide-react";
 import { AppLayout } from "@/components/layout/app-layout";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { usePCNs } from "@/hooks/use-pcns";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { DeadlineCalendar } from "@/components/dashboard/deadline-calendar";
+import { NearbyMap } from "@/components/dashboard/nearby-map";
+import { VehiclesStrip } from "@/components/dashboard/vehicles-strip";
+
+function StatCard({
+  label,
+  value,
+  hint,
+  icon,
+  iconClass,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+  icon: ReactNode;
+  iconClass: string;
+}) {
+  return (
+    <Card>
+      <CardContent className="flex items-center gap-3 p-4">
+        <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${iconClass}`}>
+          {icon}
+        </span>
+        <div className="min-w-0">
+          <div className="text-xs text-muted-foreground">{label}</div>
+          <div className="text-xl font-bold leading-tight sm:text-2xl">{value}</div>
+          <div className="truncate text-xs text-muted-foreground">{hint}</div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function DashboardPage() {
   const { data: pcns, isLoading } = usePCNs();
@@ -15,11 +55,12 @@ export default function DashboardPage() {
       <AppLayout>
         <div className="space-y-6">
           <Skeleton className="h-8 w-48" />
-          <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
             {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-28 rounded-xl" />
+              <Skeleton key={i} className="h-24 rounded-xl" />
             ))}
           </div>
+          <Skeleton className="h-64 rounded-xl" />
         </div>
       </AppLayout>
     );
@@ -27,7 +68,7 @@ export default function DashboardPage() {
 
   const safePcns = pcns || [];
   const pendingPcns = safePcns.filter((p) => p.status === "pending");
-  const paidPcns = safePcns.filter((p) => p.status === "paid");
+  const resolvedPcns = safePcns.filter((p) => p.status === "paid");
   const contestedPcns = safePcns.filter((p) => p.status === "contested");
   const totalOwed = pendingPcns.reduce((sum, p) => sum + (p.amount || 0), 0);
 
@@ -40,113 +81,100 @@ export default function DashboardPage() {
   return (
     <AppLayout>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground mt-1 text-sm">
-            Overview of your penalty charge notices.
-          </p>
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Manage your penalty charge notices</p>
+          </div>
+          <Button asChild>
+            <Link href="/pcns/upload">
+              <UploadCloud className="mr-2 h-4 w-4" /> Upload PCN
+            </Link>
+          </Button>
         </div>
 
-        {/* Stats — 2 cols on mobile, 4 on desktop */}
-        <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 pt-4 px-4">
-              <CardTitle className="text-xs sm:text-sm font-medium">Total Owed</CardTitle>
-              <PoundSterling className="h-4 w-4 text-muted-foreground shrink-0" />
-            </CardHeader>
-            <CardContent className="px-4 pb-4">
-              <div className="text-xl sm:text-2xl font-bold">£{totalOwed.toFixed(2)}</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {pendingPcns.length} pending notice{pendingPcns.length === 1 ? "" : "s"}
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 pt-4 px-4">
-              <CardTitle className="text-xs sm:text-sm font-medium">Pending</CardTitle>
-              <AlertCircle className="h-4 w-4 text-amber-500 shrink-0" />
-            </CardHeader>
-            <CardContent className="px-4 pb-4">
-              <div className="text-xl sm:text-2xl font-bold">{pendingPcns.length}</div>
-              <p className="text-xs text-muted-foreground mt-1">Awaiting action</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 pt-4 px-4">
-              <CardTitle className="text-xs sm:text-sm font-medium">Contested</CardTitle>
-              <Clock className="h-4 w-4 text-blue-500 shrink-0" />
-            </CardHeader>
-            <CardContent className="px-4 pb-4">
-              <div className="text-xl sm:text-2xl font-bold">{contestedPcns.length}</div>
-              <p className="text-xs text-muted-foreground mt-1">Under review</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 pt-4 px-4">
-              <CardTitle className="text-xs sm:text-sm font-medium">Paid</CardTitle>
-              <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
-            </CardHeader>
-            <CardContent className="px-4 pb-4">
-              <div className="text-xl sm:text-2xl font-bold">{paidPcns.length}</div>
-              <p className="text-xs text-muted-foreground mt-1">Resolved</p>
-            </CardContent>
-          </Card>
+        {/* Stats */}
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatCard
+            label="Total Owed"
+            value={`£${totalOwed.toFixed(2)}`}
+            hint={`${pendingPcns.length} pending notice${pendingPcns.length === 1 ? "" : "s"}`}
+            icon={<PoundSterling className="h-5 w-5" />}
+            iconClass="bg-rose-100 text-rose-600"
+          />
+          <StatCard
+            label="Pending"
+            value={String(pendingPcns.length)}
+            hint="Awaiting action"
+            icon={<Clock className="h-5 w-5" />}
+            iconClass="bg-amber-100 text-amber-600"
+          />
+          <StatCard
+            label="Contested"
+            value={String(contestedPcns.length)}
+            hint="Under review"
+            icon={<Scale className="h-5 w-5" />}
+            iconClass="bg-blue-100 text-blue-600"
+          />
+          <StatCard
+            label="Resolved"
+            value={String(resolvedPcns.length)}
+            hint="Paid / closed"
+            icon={<CheckCircle2 className="h-5 w-5" />}
+            iconClass="bg-green-100 text-green-600"
+          />
         </div>
 
-        {/* Bottom cards — stacked on mobile, side by side on md+ */}
+        {/* Upcoming deadlines + recent notices */}
         <div className="grid gap-4 md:grid-cols-2">
           <Card>
-            <CardHeader className="pb-3">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
               <CardTitle className="text-base">Upcoming Deadlines</CardTitle>
-              <CardDescription className="text-xs">
-                Notices that require your attention soon.
-              </CardDescription>
+              <Link href="/pcns" className="text-sm font-medium text-primary hover:underline">
+                View all
+              </Link>
             </CardHeader>
             <CardContent>
               {upcomingPcns.length === 0 ? (
-                <div className="text-sm text-muted-foreground text-center py-6 border border-dashed rounded-lg bg-muted/20">
+                <div className="rounded-lg border border-dashed bg-muted/20 py-6 text-center text-sm text-muted-foreground">
                   No upcoming deadlines. You're all caught up!
                 </div>
               ) : (
                 <div className="space-y-3">
                   {upcomingPcns.map((pcn) => {
                     const dueDate = new Date(pcn.due_date!);
-                    const daysLeft = differenceInDays(dueDate, today);
-                    const isUrgent = daysLeft <= 3;
+                    const daysLeft = differenceInCalendarDays(dueDate, today);
+                    const overdue = daysLeft < 0;
+                    const urgent = daysLeft >= 0 && daysLeft <= 3;
                     return (
                       <div
                         key={pcn.id}
-                        className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0 gap-2"
+                        className="flex items-center justify-between gap-2 border-b pb-3 last:border-0 last:pb-0"
                       >
                         <div className="min-w-0">
                           <Link
                             href={`/pcns/${pcn.id}`}
-                            className="font-medium hover:underline text-sm truncate block"
+                            className="block truncate text-sm font-medium hover:underline"
                           >
                             {pcn.pcn_reference}
                           </Link>
-                          <div className="text-xs text-muted-foreground truncate">
-                            {pcn.issuer}
-                          </div>
+                          <div className="truncate text-xs text-muted-foreground">{pcn.issuer}</div>
                         </div>
-                        <div className="text-right shrink-0">
-                          <div
-                            className={`text-sm font-medium ${
-                              isUrgent ? "text-destructive" : ""
+                        <div className="shrink-0 text-right">
+                          <Badge
+                            variant="outline"
+                            className={`text-xs ${
+                              overdue
+                                ? "border-rose-200 bg-rose-100 text-rose-700"
+                                : urgent
+                                ? "border-red-200 bg-red-100 text-red-700"
+                                : "border-amber-200 bg-amber-100 text-amber-800"
                             }`}
                           >
-                            {daysLeft < 0
-                              ? "Overdue"
-                              : daysLeft === 0
-                              ? "Due today"
-                              : `${daysLeft}d left`}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            £{pcn.amount?.toFixed(2)}
-                          </div>
+                            {overdue ? "Overdue" : daysLeft === 0 ? "Due today" : `${daysLeft}d left`}
+                          </Badge>
+                          <div className="mt-1 text-xs text-muted-foreground">£{(pcn.amount || 0).toFixed(2)}</div>
                         </div>
                       </div>
                     );
@@ -157,18 +185,18 @@ export default function DashboardPage() {
           </Card>
 
           <Card>
-            <CardHeader className="pb-3">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
               <CardTitle className="text-base">Recent Notices</CardTitle>
-              <CardDescription className="text-xs">
-                Your latest penalty charge notices.
-              </CardDescription>
+              <Link href="/pcns" className="text-sm font-medium text-primary hover:underline">
+                View all
+              </Link>
             </CardHeader>
             <CardContent>
               {safePcns.length === 0 ? (
-                <div className="text-sm text-muted-foreground text-center py-6 border border-dashed rounded-lg bg-muted/20">
+                <div className="rounded-lg border border-dashed bg-muted/20 py-6 text-center text-sm text-muted-foreground">
                   No notices found.
                   <div className="mt-3">
-                    <Link href="/pcns/upload" className="text-primary hover:underline text-sm">
+                    <Link href="/pcns/upload" className="text-sm text-primary hover:underline">
                       Upload your first notice
                     </Link>
                   </div>
@@ -178,32 +206,32 @@ export default function DashboardPage() {
                   {safePcns.slice(0, 4).map((pcn) => (
                     <div
                       key={pcn.id}
-                      className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0 gap-2"
+                      className="flex items-center justify-between gap-2 border-b pb-3 last:border-0 last:pb-0"
                     >
                       <div className="min-w-0">
                         <Link
                           href={`/pcns/${pcn.id}`}
-                          className="font-medium hover:underline text-sm truncate block"
+                          className="block truncate text-sm font-medium hover:underline"
                         >
                           {pcn.pcn_reference}
                         </Link>
                         <div className="text-xs text-muted-foreground">
-                          {pcn.issue_date
-                            ? format(new Date(pcn.issue_date), "dd MMM yyyy")
-                            : "Unknown date"}
+                          {pcn.issue_date ? format(new Date(pcn.issue_date), "dd MMM yyyy") : "Unknown date"}
                         </div>
                       </div>
                       <Badge
                         variant="outline"
-                        className={`text-xs shrink-0 ${
+                        className={`shrink-0 text-xs ${
                           pcn.status === "pending"
-                            ? "bg-amber-100 text-amber-800 border-amber-200"
+                            ? "border-amber-200 bg-amber-100 text-amber-800"
                             : pcn.status === "paid"
-                            ? "bg-green-100 text-green-800 border-green-200"
-                            : "bg-blue-100 text-blue-800 border-blue-200"
+                            ? "border-green-200 bg-green-100 text-green-800"
+                            : "border-blue-200 bg-blue-100 text-blue-800"
                         }`}
                       >
-                        {pcn.status.charAt(0).toUpperCase() + pcn.status.slice(1)}
+                        {pcn.status === "paid"
+                          ? "Resolved"
+                          : pcn.status.charAt(0).toUpperCase() + pcn.status.slice(1)}
                       </Badge>
                     </div>
                   ))}
@@ -212,6 +240,15 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Deadline calendar */}
+        <DeadlineCalendar pcns={safePcns} />
+
+        {/* EV charging & parking */}
+        <NearbyMap />
+
+        {/* My vehicles */}
+        <VehiclesStrip />
       </div>
     </AppLayout>
   );

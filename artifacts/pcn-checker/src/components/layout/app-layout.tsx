@@ -1,6 +1,6 @@
 import { ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { Car, FileText, LayoutDashboard, LogOut, Menu, UploadCloud } from "lucide-react";
+import { Car, FileText, LayoutDashboard, LogOut, Menu, Settings, UploadCloud } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,10 +11,26 @@ import {
 
 const NAV_ITEMS = [
   { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
-  { href: "/pcns", icon: FileText, label: "All PCNs" },
-  { href: "/pcns/upload", icon: UploadCloud, label: "Upload" },
+  { href: "/pcns", icon: FileText, label: "My PCNs" },
   { href: "/vehicles", icon: Car, label: "Vehicles" },
+  { href: "/pcns/upload", icon: UploadCloud, label: "Upload PCN" },
+  { href: "/settings", icon: Settings, label: "Settings" },
 ];
+
+/** Brand mark — gradient "AI" badge matching the app identity. */
+function BrandMark() {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-xs font-bold text-white">
+        AI
+      </span>
+      <div className="leading-tight">
+        <div className="text-sm font-semibold tracking-tight text-foreground">AI PCN Checker</div>
+        <div className="text-[11px] text-muted-foreground">UK Parking Fines</div>
+      </div>
+    </div>
+  );
+}
 
 function useIsActive(href: string) {
   const [location] = useLocation();
@@ -68,8 +84,7 @@ function SidebarContent({ user, signOut, onNavClick }: { user: any; signOut: () 
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-14 items-center px-4 border-b shrink-0">
-        <FileText className="h-5 w-5 mr-2 text-primary" />
-        <span className="font-semibold tracking-tight text-foreground">PCN Checker</span>
+        <BrandMark />
       </div>
 
       <nav className="flex-1 overflow-auto p-4 space-y-1">
@@ -123,10 +138,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             />
           </SheetContent>
         </Sheet>
-        <div className="flex items-center gap-2">
-          <FileText className="h-4 w-4 text-primary" />
-          <span className="font-semibold tracking-tight text-foreground">PCN Checker</span>
-        </div>
+        <BrandMark />
       </header>
 
       {/* ── Body row ── */}

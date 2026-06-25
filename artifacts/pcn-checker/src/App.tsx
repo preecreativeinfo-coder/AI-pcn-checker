@@ -12,6 +12,7 @@ import VehiclesPage from "@/pages/vehicles";
 import PCNsPage from "@/pages/pcns";
 import UploadPCNPage from "@/pages/upload-pcn";
 import PCNDetailPage from "@/pages/pcn-detail";
+import SettingsPage from "@/pages/settings";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -66,6 +67,10 @@ function Router() {
       
       <Route path="/vehicles">
         {() => <ProtectedRoute component={VehiclesPage} />}
+      </Route>
+
+      <Route path="/settings">
+        {() => <ProtectedRoute component={SettingsPage} />}
       </Route>
       
       <Route path="/pcns">
