@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -11,6 +11,7 @@ import {
   ChevronUp,
   Clock,
   ExternalLink,
+  FileCheck,
   Loader2,
   Plus,
   RefreshCw,
@@ -369,8 +370,10 @@ export default function VehiclesPage() {
   const [dvlaPreview, setDvlaPreview] = useState<VehicleLookupResult | null>(null);
   const [cardDvlaData, setCardDvlaData] = useState<Record<string, VehicleLookupResult>>({});
   const [cardLoading, setCardLoading] = useState<Record<string, boolean>>({});
+  const [cardError, setCardError] = useState<Record<string, boolean>>({});
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
   const [motDialogReg, setMotDialogReg] = useState<string | null>(null);
+  const autoTried = useRef<Set<string>>(new Set());
 
   const form = useForm<VehicleFormValues>({
     resolver: zodResolver(vehicleSchema),
@@ -487,6 +490,23 @@ export default function VehiclesPage() {
     }
   };
 
+  // Auto-fetch DVLA details for each vehicle once, so MOT/Tax show without a
+  // manual click. Silent — no toasts; a missing key just flags "unavailable".
+  useEffect(() => {
+    if (!vehicles) return;
+    vehicles.forEach((v) => {
+      if (autoTried.current.has(v.id)) return;
+      autoTried.current.add(v.id);
+      setCardLoading((prev) => ({ ...prev, [v.id]: true }));
+      lookupVehicle
+        .mutateAsync({ data: { registrationNumber: v.registration_number } })
+        .then((result) => setCardDvlaData((prev) => ({ ...prev, [v.id]: result })))
+        .catch(() => setCardError((prev) => ({ ...prev, [v.id]: true })))
+        .finally(() => setCardLoading((prev) => ({ ...prev, [v.id]: false })));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vehicles]);
+
   return (
     <AppLayout>
       <div className="space-y-6">
@@ -533,6 +553,13 @@ export default function VehiclesPage() {
                             <Input
                               placeholder="AB12 CDE"
                               {...field}
+                              onBlur={(e) => {
+                                field.onBlur();
+                                // Auto-fetch DVLA details as soon as a plate is entered.
+                                if (e.target.value && !dvlaPreview && !lookupVehicle.isPending) {
+                                  handleAutoFill();
+                                }
+                              }}
                               className="uppercase font-mono tracking-wider"
                               data-testid="input-reg"
                             />
@@ -712,42 +739,79 @@ export default function VehiclesPage() {
                       </div>
                     </div>
 
-                    {/* Quick DVLA status badges (if already loaded) */}
-                    {dvla && !isExpanded && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {taxBadge(dvla.taxStatus)}
-                        {motBadge(dvla.motStatus)}
+                    {/* DVLA-sourced MOT & Tax — auto-fetched on load */}
+                    {isChecking && !dvla ? (
+                      <div className="space-y-2">
+                        <Skeleton className="h-11 rounded-lg" />
+                        <Skeleton className="h-11 rounded-lg" />
                       </div>
-                    )}
+                    ) : dvla ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between rounded-lg border bg-muted/20 px-3 py-2">
+                          <span className="flex items-center gap-2 text-sm font-medium">
+                            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary">
+                              <FileCheck className="h-3.5 w-3.5" />
+                            </span>
+                            MOT
+                          </span>
+                          {dvla.motExpiryDate ? (
+                            <span className="text-xs">
+                              <span className="text-muted-foreground">Expires </span>
+                              <span className="font-semibold text-green-600">{formatDate(dvla.motExpiryDate)}</span>
+                            </span>
+                          ) : (
+                            motBadge(dvla.motStatus)
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between rounded-lg border bg-muted/20 px-3 py-2">
+                          <span className="flex items-center gap-2 text-sm font-medium">
+                            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary">
+                              <Car className="h-3.5 w-3.5" />
+                            </span>
+                            Tax
+                          </span>
+                          {dvla.taxDueDate ? (
+                            <span className="text-xs">
+                              <span className="text-muted-foreground">Due </span>
+                              <span className="font-semibold text-green-600">{formatDate(dvla.taxDueDate)}</span>
+                            </span>
+                          ) : (
+                            taxBadge(dvla.taxStatus)
+                          )}
+                        </div>
+                      </div>
+                    ) : cardError[vehicle.id] ? (
+                      <p className="text-xs text-muted-foreground">
+                        Live DVLA details unavailable. Add{" "}
+                        <code className="rounded bg-muted px-1">DVLA_API_KEY</code> in Vercel to enable.
+                      </p>
+                    ) : null}
 
                     {/* Action buttons */}
                     <div className="flex flex-wrap gap-2 pt-1">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-xs h-8 gap-1.5"
-                        onClick={() =>
-                          dvla && isExpanded
-                            ? setExpandedCard(null)
-                            : handleCardLookup(vehicle.id, vehicle.registration_number)
-                        }
-                        disabled={isChecking}
-                      >
-                        {isChecking ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : dvla && isExpanded ? (
-                          <ChevronUp className="h-3.5 w-3.5" />
-                        ) : (
-                          <RefreshCw className="h-3.5 w-3.5" />
-                        )}
-                        {isChecking
-                          ? "Checking…"
-                          : dvla && isExpanded
-                          ? "Hide"
-                          : dvla
-                          ? "Refresh"
-                          : "Check DVLA"}
-                      </Button>
+                      {dvla && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs h-8 gap-1.5"
+                          onClick={() => setExpandedCard(isExpanded ? null : vehicle.id)}
+                        >
+                          {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                          {isExpanded ? "Hide" : "More details"}
+                        </Button>
+                      )}
+                      {cardError[vehicle.id] && !dvla && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs h-8 gap-1.5"
+                          onClick={() => handleCardLookup(vehicle.id, vehicle.registration_number)}
+                          disabled={isChecking}
+                        >
+                          {isChecking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                          Retry
+                        </Button>
+                      )}
                       <Button
                         variant="outline"
                         size="sm"

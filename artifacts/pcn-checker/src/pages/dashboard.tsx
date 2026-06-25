@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Clock,
   PoundSterling,
+  Receipt,
   Scale,
   UploadCloud,
 } from "lucide-react";
@@ -125,6 +126,35 @@ export default function DashboardPage() {
             iconClass="bg-green-100 text-green-600"
           />
         </div>
+
+        {/* Road tolls & charges */}
+        <Card className="bg-primary text-primary-foreground">
+          <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/15">
+                <Receipt className="h-5 w-5" />
+              </span>
+              <div>
+                <div className="text-base font-semibold">Road tolls and charges</div>
+                <div className="text-sm text-primary-foreground/80">
+                  Keep track of all your expenses in one place
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="secondary" asChild>
+                <Link href="/tolls?add=1">Add new</Link>
+              </Button>
+              <Button
+                variant="outline"
+                className="border-white/30 bg-transparent text-primary-foreground hover:bg-white/10"
+                asChild
+              >
+                <Link href="/tolls">View all</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Upcoming deadlines + recent notices */}
         <div className="grid gap-4 md:grid-cols-2">

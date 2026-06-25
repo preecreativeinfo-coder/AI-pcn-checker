@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
-import { Car, FileText, LayoutDashboard, LogOut, Settings, UploadCloud } from "lucide-react";
+import { Car, FileText, LayoutDashboard, LogOut, Receipt, Settings, UploadCloud } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 
@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { href: "/pcns", icon: FileText, label: "My PCNs" },
   { href: "/vehicles", icon: Car, label: "Vehicles" },
+  { href: "/tolls", icon: Receipt, label: "Tolls & Charges" },
   { href: "/pcns/upload", icon: UploadCloud, label: "Upload PCN" },
   { href: "/settings", icon: Settings, label: "Settings" },
 ];
