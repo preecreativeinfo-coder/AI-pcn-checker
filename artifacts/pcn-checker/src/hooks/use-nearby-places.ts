@@ -42,12 +42,36 @@ function buildQuery(kind: PlaceKind, lat: number, lon: number, radius: number): 
 out center 60;`;
 }
 
+/** Production: hit our cached serverless proxy, which already returns parsed places. */
+async function fetchViaProxy(
+  kind: PlaceKind,
+  lat: number,
+  lon: number,
+  radius: number,
+): Promise<NearbyPlace[]> {
+  const params = new URLSearchParams({
+    kind,
+    lat: String(lat),
+    lon: String(lon),
+    radius: String(radius),
+  });
+  const res = await fetch(`/api/nearby?${params.toString()}`);
+  if (!res.ok) throw new Error(`Nearby proxy error ${res.status}`);
+  return (await res.json()) as NearbyPlace[];
+}
+
 async function fetchPlaces(
   kind: PlaceKind,
   lat: number,
   lon: number,
   radius: number,
 ): Promise<NearbyPlace[]> {
+  // In production the request goes through a cached Vercel function; in local
+  // dev there's no serverless runtime, so we query Overpass directly.
+  if (!import.meta.env.DEV) {
+    return fetchViaProxy(kind, lat, lon, radius);
+  }
+
   const res = await fetch(OVERPASS_ENDPOINT, {
     method: "POST",
     body: "data=" + encodeURIComponent(buildQuery(kind, lat, lon, radius)),
