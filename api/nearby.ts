@@ -4,6 +4,14 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 // Proxies the public Overpass (OpenStreetMap) API and caches the result on
 // Vercel's CDN so repeated dashboard loads don't hammer the upstream endpoint.
 
+// Allow up to 30s — public Overpass mirrors can be slow under load and we may
+// fall through more than one of them before getting a response.
+export const config = { maxDuration: 30 };
+
+// Per-mirror network timeout. Kept well under maxDuration so we can fail fast
+// and try the next mirror instead of hanging until the platform kills us.
+const FETCH_TIMEOUT_MS = 12000;
+
 // Overpass etiquette: identify the app with a User-Agent, otherwise some
 // mirrors reject server-side requests (HTTP 406/429). We try mirrors in order.
 const OVERPASS_ENDPOINTS = [
@@ -39,7 +47,7 @@ function haversine(aLat: number, aLon: number, bLat: number, bLon: number): numb
 }
 
 function buildQuery(amenity: string, lat: number, lon: number, radius: number): string {
-  return `[out:json][timeout:25];
+  return `[out:json][timeout:20];
 (
   node["amenity"="${amenity}"](around:${radius},${lat},${lon});
   way["amenity"="${amenity}"](around:${radius},${lat},${lon});
@@ -81,21 +89,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let upstream: Response | null = null;
     let lastStatus = 0;
     for (const endpoint of OVERPASS_ENDPOINTS) {
-      const resp = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "User-Agent": USER_AGENT,
-          Accept: "application/json",
-        },
-        body,
-      });
-      if (resp.ok) {
-        upstream = resp;
-        break;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+      try {
+        const resp = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": USER_AGENT,
+            Accept: "application/json",
+          },
+          body,
+          signal: controller.signal,
+        });
+        if (resp.ok) {
+          upstream = resp;
+          break;
+        }
+        lastStatus = resp.status;
+        console.error("Overpass error", endpoint, resp.status);
+      } catch (err) {
+        lastStatus = 504; // timed out / network error → treat as gateway timeout
+        console.error("Overpass request failed", endpoint, (err as Error).name);
+      } finally {
+        clearTimeout(timer);
       }
-      lastStatus = resp.status;
-      console.error("Overpass error", endpoint, resp.status);
     }
 
     if (!upstream) {
