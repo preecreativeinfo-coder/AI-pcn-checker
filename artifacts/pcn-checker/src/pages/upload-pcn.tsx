@@ -22,13 +22,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { ResponsiveSelect } from "@/components/ui/responsive-select";
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
@@ -353,18 +347,18 @@ export default function UploadPCNPage() {
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel>Status</FormLabel>
-                              <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                <FormControl>
-                                  <SelectTrigger data-testid="select-status">
-                                    <SelectValue placeholder="Select status" />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  <SelectItem value="pending">Pending</SelectItem>
-                                  <SelectItem value="paid">Paid</SelectItem>
-                                  <SelectItem value="contested">Contested</SelectItem>
-                                </SelectContent>
-                              </Select>
+                              <ResponsiveSelect
+                                value={field.value}
+                                onValueChange={field.onChange}
+                                title="Status"
+                                placeholder="Select status"
+                                data-testid="select-status"
+                                options={[
+                                  { value: "pending", label: "Pending" },
+                                  { value: "paid", label: "Paid" },
+                                  { value: "contested", label: "Contested" },
+                                ]}
+                              />
                               <FormMessage />
                             </FormItem>
                           )}
@@ -391,21 +385,20 @@ export default function UploadPCNPage() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Vehicle (Optional)</FormLabel>
-                            <Select onValueChange={field.onChange} defaultValue={field.value || "none"}>
-                              <FormControl>
-                                <SelectTrigger data-testid="select-vehicle">
-                                  <SelectValue placeholder="Select a vehicle" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                <SelectItem value="none">No vehicle linked</SelectItem>
-                                {vehicles?.map(v => (
-                                  <SelectItem key={v.id} value={v.id}>
-                                    {v.registration_number} - {v.make}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            <ResponsiveSelect
+                              value={field.value || "none"}
+                              onValueChange={field.onChange}
+                              title="Vehicle"
+                              placeholder="Select a vehicle"
+                              data-testid="select-vehicle"
+                              options={[
+                                { value: "none", label: "No vehicle linked" },
+                                ...(vehicles?.map((v) => ({
+                                  value: v.id,
+                                  label: `${v.registration_number} - ${v.make}`,
+                                })) ?? []),
+                              ]}
+                            />
                             <FormMessage />
                           </FormItem>
                         )}

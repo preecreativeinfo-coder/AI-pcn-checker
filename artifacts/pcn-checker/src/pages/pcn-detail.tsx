@@ -38,13 +38,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { ResponsiveSelect } from "@/components/ui/responsive-select";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   AlertDialog,
@@ -316,13 +310,15 @@ export default function PCNDetailPage({ id }: { id: string }) {
                         <FormField control={form.control} name="vehicle_id" render={({ field }) => (
                           <FormItem>
                             <FormLabel>Vehicle</FormLabel>
-                            <Select onValueChange={field.onChange} value={field.value || "none"}>
-                              <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                              <SelectContent>
-                                <SelectItem value="none">None</SelectItem>
-                                {vehicles?.map((v) => <SelectItem key={v.id} value={v.id}>{v.registration_number}</SelectItem>)}
-                              </SelectContent>
-                            </Select>
+                            <ResponsiveSelect
+                              value={field.value || "none"}
+                              onValueChange={field.onChange}
+                              title="Vehicle"
+                              options={[
+                                { value: "none", label: "None" },
+                                ...(vehicles?.map((v) => ({ value: v.id, label: v.registration_number })) ?? []),
+                              ]}
+                            />
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -382,14 +378,13 @@ export default function PCNDetailPage({ id }: { id: string }) {
                     {/* Status control */}
                     <div className="flex items-center gap-3 border-t pt-4">
                       <span className="text-sm text-muted-foreground">Status</span>
-                      <Select value={pcn.status} onValueChange={(v) => onUpdateStatus(v as PCNStatus)}>
-                        <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {PCN_STATUSES.map((s) => (
-                            <SelectItem key={s} value={s}>{statusLabel(s)}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <ResponsiveSelect
+                        value={pcn.status}
+                        onValueChange={(v) => onUpdateStatus(v as PCNStatus)}
+                        className="w-44"
+                        title="Update status"
+                        options={PCN_STATUSES.map((s) => ({ value: s, label: statusLabel(s) }))}
+                      />
                     </div>
                   </div>
                 )}
