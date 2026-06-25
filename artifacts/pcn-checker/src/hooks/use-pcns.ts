@@ -9,16 +9,6 @@ export type PCNStatus =
   | "appealed"
   | "cancelled";
 
-export interface AiAnalysis {
-  likelihood: "low" | "moderate" | "high";
-  score: number; // 0–100 estimated chance of a successful challenge
-  summary: string;
-  grounds: { title: string; rationale: string }[];
-  recommendations: string[];
-  generatedAt: string;
-  model: string;
-}
-
 export interface PCN {
   id: string;
   user_id: string;
@@ -33,7 +23,6 @@ export interface PCN {
   contravention_code: string | null;
   file_path: string | null;
   ocr_raw_text: string | null;
-  ai_analysis: AiAnalysis | null;
   created_at: string;
   updated_at: string;
 }

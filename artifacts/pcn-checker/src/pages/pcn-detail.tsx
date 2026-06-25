@@ -9,7 +9,6 @@ import {
   FileText,
   Pencil,
   Save,
-  Sparkles,
   Trash2,
   X,
 } from "lucide-react";
@@ -19,7 +18,6 @@ import { useForm } from "react-hook-form";
 import { AppLayout } from "@/components/layout/app-layout";
 import { usePCN, useUpdatePCN, useDeletePCN, type PCNStatus } from "@/hooks/use-pcns";
 import { useVehicles } from "@/hooks/use-vehicles";
-import { useAnalyzePCN } from "@/hooks/use-analyze-pcn";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
@@ -31,7 +29,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Form,
@@ -72,12 +69,6 @@ const updatePcnSchema = z.object({
   vehicle_id: z.string().optional().nullable(),
 });
 
-const LIKELIHOOD_STYLE: Record<string, string> = {
-  high: "bg-green-100 text-green-800 border-green-200",
-  moderate: "bg-amber-100 text-amber-800 border-amber-200",
-  low: "bg-rose-100 text-rose-800 border-rose-200",
-};
-
 function Field({ label, icon, children }: { label: string; icon: ReactNode; children: ReactNode }) {
   return (
     <div className="flex items-start gap-3">
@@ -97,7 +88,6 @@ export default function PCNDetailPage({ id }: { id: string }) {
   const { data: vehicles } = useVehicles();
   const updatePcn = useUpdatePCN();
   const deletePcn = useDeletePCN();
-  const analyze = useAnalyzePCN();
   const { toast } = useToast();
   const { session } = useAuth();
   const [, setLocation] = useLocation();
@@ -173,16 +163,6 @@ export default function PCNDetailPage({ id }: { id: string }) {
     }
   };
 
-  const runAnalysis = async () => {
-    if (!pcn) return;
-    setTab("ai");
-    try {
-      await analyze.mutateAsync(pcn);
-    } catch (error: any) {
-      toast({ variant: "destructive", title: "AI Analysis failed", description: error.message });
-    }
-  };
-
   if (isLoading) {
     return (
       <AppLayout>
@@ -216,7 +196,6 @@ export default function PCNDetailPage({ id }: { id: string }) {
   const allegedContravention = contraventionDescription(pcn.contravention_code);
   const portal = paymentPortal(pcn.issuer);
   const showPay = pcn.status !== "paid" && pcn.status !== "cancelled";
-  const analysis = analyze.data ?? pcn.ai_analysis;
 
   return (
     <AppLayout>
@@ -300,10 +279,6 @@ export default function PCNDetailPage({ id }: { id: string }) {
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="ai">
-              AI Analysis
-              {analysis && <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-purple-500" />}
-            </TabsTrigger>
             <TabsTrigger value="appeal">
               Appeal Letter
               {(pcn.status === "contested" || pcn.status === "appealed") && (
@@ -430,96 +405,12 @@ export default function PCNDetailPage({ id }: { id: string }) {
               </details>
             )}
 
-            {/* Bottom actions */}
-            <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              <Button
-                className="bg-purple-600 hover:bg-purple-700"
-                onClick={runAnalysis}
-                disabled={analyze.isPending}
-              >
-                <Sparkles className="mr-2 h-4 w-4" />
-                {analyze.isPending ? "Analysing…" : "AI Analysis"}
-              </Button>
-              <Button className="bg-green-600 hover:bg-green-700" onClick={() => setTab("appeal")}>
+            {/* Bottom action */}
+            <div className="mt-5">
+              <Button className="w-full bg-green-600 hover:bg-green-700" onClick={() => setTab("appeal")}>
                 <FileText className="mr-2 h-4 w-4" /> New Appeal Letter
               </Button>
             </div>
-          </TabsContent>
-
-          {/* ── AI Analysis ── */}
-          <TabsContent value="ai" className="mt-4">
-            <Card>
-              <CardContent className="p-5">
-                {analyze.isPending ? (
-                  <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-                    <Sparkles className="h-8 w-8 animate-pulse text-purple-500" />
-                    <p className="text-sm text-muted-foreground">Analysing this notice with AI…</p>
-                  </div>
-                ) : analysis ? (
-                  <div className="space-y-5">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <Badge variant="outline" className={LIKELIHOOD_STYLE[analysis.likelihood]}>
-                        {statusLabel(analysis.likelihood)} chance of success
-                      </Badge>
-                      <div className="flex-1 min-w-40">
-                        <Progress value={analysis.score} className="h-2" />
-                      </div>
-                      <span className="text-sm font-semibold">{analysis.score}%</span>
-                    </div>
-
-                    <p className="text-sm leading-relaxed">{analysis.summary}</p>
-
-                    {analysis.grounds.length > 0 && (
-                      <div>
-                        <h3 className="mb-2 text-sm font-semibold">Potential grounds</h3>
-                        <div className="space-y-2">
-                          {analysis.grounds.map((g, i) => (
-                            <div key={i} className="rounded-lg border p-3">
-                              <div className="text-sm font-medium">{g.title}</div>
-                              <div className="mt-0.5 text-sm text-muted-foreground">{g.rationale}</div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {analysis.recommendations.length > 0 && (
-                      <div>
-                        <h3 className="mb-2 text-sm font-semibold">Recommended next steps</h3>
-                        <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                          {analysis.recommendations.map((r, i) => <li key={i}>{r}</li>)}
-                        </ul>
-                      </div>
-                    )}
-
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-4 text-xs text-muted-foreground">
-                      <span>
-                        Generated {format(new Date(analysis.generatedAt), "dd MMM yyyy, HH:mm")} · {analysis.model}
-                      </span>
-                      <Button variant="outline" size="sm" onClick={runAnalysis} disabled={analyze.isPending}>
-                        <Sparkles className="mr-1.5 h-3.5 w-3.5" /> Re-run
-                      </Button>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      AI-generated information, not legal advice. Review carefully and consult a professional for complex cases.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-                    <Sparkles className="h-8 w-8 text-purple-500" />
-                    <div>
-                      <p className="text-sm font-medium">No analysis yet</p>
-                      <p className="text-sm text-muted-foreground">
-                        Run an AI assessment of how strong a challenge to this PCN might be.
-                      </p>
-                    </div>
-                    <Button className="bg-purple-600 hover:bg-purple-700" onClick={runAnalysis}>
-                      <Sparkles className="mr-2 h-4 w-4" /> Run AI Analysis
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
           </TabsContent>
 
           {/* ── Appeal Letter ── */}

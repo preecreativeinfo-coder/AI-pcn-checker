@@ -1,7 +1,7 @@
 -- =============================================================
 -- AI PCN Checker — migration 002
--- Adds: extra PCN statuses (appealed, cancelled), a contravention
--- code column, and a cached AI analysis column.
+-- Adds: extra PCN statuses (appealed, cancelled) and a
+-- contravention code column.
 -- Run in: Supabase Dashboard → SQL Editor → New query → Run
 -- Safe to re-run.
 -- =============================================================
@@ -17,8 +17,3 @@ alter table public.pcns
 -- ---------- New columns ----------
 alter table public.pcns
   add column if not exists contravention_code text;
-
--- Cached result of the AI Analysis so we don't re-run (and re-bill) the
--- model on every page view. Refreshed when the user clicks "AI Analysis".
-alter table public.pcns
-  add column if not exists ai_analysis jsonb;

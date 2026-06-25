@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { format, differenceInCalendarDays } from "date-fns";
-import { ChevronRight, FileText, Search, Sparkles, UploadCloud } from "lucide-react";
+import { ChevronRight, FileText, Search, UploadCloud } from "lucide-react";
 import { AppLayout } from "@/components/layout/app-layout";
 import { usePCNs } from "@/hooks/use-pcns";
 import { Badge } from "@/components/ui/badge";
@@ -124,9 +124,6 @@ export default function PCNsPage() {
                         <Badge variant="outline" className={`text-xs ${statusClass(pcn.status)}`}>
                           {statusLabel(pcn.status)}
                         </Badge>
-                        {pcn.ai_analysis && (
-                          <Sparkles className="h-3.5 w-3.5 text-purple-500" aria-label="AI analysed" />
-                        )}
                         {pcn.file_path && (
                           <FileText className="h-3.5 w-3.5 text-green-600" aria-label="Document attached" />
                         )}
