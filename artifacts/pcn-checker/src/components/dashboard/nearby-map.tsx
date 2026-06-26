@@ -17,6 +17,11 @@ function formatDistance(metres: number): string {
   return `${(metres / 1000).toFixed(1)}km`;
 }
 
+/** Cross-platform maps directions link (opens the maps app on mobile). */
+function directionsUrl(p: NearbyPlace): string {
+  return `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lon}`;
+}
+
 /** Coloured pin built as a divIcon so we don't depend on Leaflet's image assets. */
 function pinIcon(kind: PlaceKind): L.DivIcon {
   const colour = kind === "charging" ? "#16a34a" : "#2563eb";
@@ -78,10 +83,15 @@ export function NearbyMap() {
     const layer = markerLayer.current;
     if (!layer) return;
     layer.clearLayers();
+    const safe = (s: string) =>
+      s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
     const places = active.data ?? [];
     for (const p of places) {
       L.marker([p.lat, p.lon], { icon: pinIcon(kind) })
-        .bindPopup(`<strong>${p.name}</strong>${p.operator ? `<br/>${p.operator}` : ""}`)
+        .bindPopup(
+          `<strong>${safe(p.name)}</strong>${p.operator ? `<br/>${safe(p.operator)}` : ""}` +
+            `<br/><a href="${directionsUrl(p)}" target="_blank" rel="noreferrer">Directions ›</a>`,
+        )
         .addTo(layer);
     }
   }, [active.data, kind]);
@@ -170,12 +180,12 @@ export function NearbyMap() {
           <div className="py-8 text-center text-sm text-muted-foreground">No spots found nearby.</div>
         ) : (
           active.data!.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => focusPlace(p)}
-              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-muted/50"
-            >
-              <div className="flex items-center gap-3 min-w-0">
+            <div key={p.id} className="flex items-center gap-2 px-4 py-3 hover:bg-muted/50">
+              <button
+                onClick={() => focusPlace(p)}
+                className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                title="Show on map"
+              >
                 <span
                   className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
                     kind === "charging" ? "bg-green-100 text-green-600" : "bg-blue-100 text-blue-600"
@@ -187,9 +197,21 @@ export function NearbyMap() {
                   <div className="truncate text-sm font-medium">{p.name}</div>
                   {p.operator && <div className="truncate text-xs text-muted-foreground">{p.operator}</div>}
                 </div>
+              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                <span className="text-sm text-muted-foreground">{formatDistance(p.distance)}</span>
+                <a
+                  href={directionsUrl(p)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium text-primary hover:bg-primary/5"
+                  title={`Directions to ${p.name}`}
+                >
+                  <Navigation className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Directions</span>
+                </a>
               </div>
-              <span className="shrink-0 text-sm text-muted-foreground">{formatDistance(p.distance)}</span>
-            </button>
+            </div>
           ))
         )}
       </div>
