@@ -130,9 +130,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
           <SidebarContent user={user} signOut={signOut} />
         </aside>
 
-        {/* Page content */}
-        <main className="flex-1 flex flex-col min-w-0 overflow-auto">
-          <div className="flex-1 px-safe p-4 pt-[calc(1rem+env(safe-area-inset-top))] md:p-8 md:pt-8">
+        {/* Page content — centered, with a responsive padding scale and safe-area top */}
+        <main className="flex-1 flex flex-col min-w-0 overflow-x-hidden overflow-y-auto">
+          <div className="mx-auto w-full max-w-screen-2xl flex-1 px-safe p-4 pt-[calc(1rem+env(safe-area-inset-top))] sm:p-6 lg:p-8">
             {children}
           </div>
         </main>

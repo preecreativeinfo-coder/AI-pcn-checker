@@ -88,7 +88,7 @@ export function DeadlineCalendar({ pcns }: { pcns: PCN[] }) {
 
             const cell = (
               <div
-                className={`relative mx-auto flex h-9 w-9 items-center justify-center rounded-full text-sm ${
+                className={`relative mx-auto flex h-8 w-8 items-center justify-center rounded-full text-xs sm:h-9 sm:w-9 sm:text-sm ${
                   severity
                     ? SEVERITY_STYLES[severity] + " font-semibold"
                     : isToday
