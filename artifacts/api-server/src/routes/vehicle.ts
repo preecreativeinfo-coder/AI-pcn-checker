@@ -4,8 +4,41 @@ const router: IRouter = Router();
 
 const DVLA_API_URL =
   "https://driver-vehicle-licensing.api.gov.uk/vehicle-enquiry/v1/vehicles";
-const DVSA_MOT_API_URL =
-  "https://beta.check-mot.service.gov.uk/trade/vehicles/mot-tests";
+
+// DVSA MOT History API (current) — OAuth2 client-credentials + API key.
+const DVSA_DEFAULT_BASE =
+  "https://history.mot.api.gov.uk/v1/trade/vehicles/registration";
+const DVSA_DEFAULT_SCOPE = "https://tapi.dvsa.gov.uk/.default";
+
+let cachedDvsaToken: { value: string; expiresAt: number } | null = null;
+
+async function getDvsaToken(): Promise<string> {
+  const now = Date.now();
+  if (cachedDvsaToken && cachedDvsaToken.expiresAt > now + 60_000) {
+    return cachedDvsaToken.value;
+  }
+  const body = new URLSearchParams({
+    grant_type: "client_credentials",
+    client_id: process.env.DVSA_CLIENT_ID!,
+    client_secret: process.env.DVSA_CLIENT_SECRET!,
+    scope: process.env.DVSA_SCOPE_URL || DVSA_DEFAULT_SCOPE,
+  });
+  const res = await fetch(process.env.DVSA_TOKEN_URL!, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`DVSA token request failed (HTTP ${res.status}) ${detail}`);
+  }
+  const json = (await res.json()) as { access_token: string; expires_in?: number };
+  cachedDvsaToken = {
+    value: json.access_token,
+    expiresAt: now + (json.expires_in ?? 3600) * 1000,
+  };
+  return cachedDvsaToken.value;
+}
 
 // ── POST /vehicle/lookup ──────────────────────────────────────────────────────
 router.post("/vehicle/lookup", async (req, res): Promise<void> => {
@@ -77,11 +110,11 @@ router.post("/vehicle/lookup", async (req, res): Promise<void> => {
 
 // ── GET /vehicle/mot/:registration ───────────────────────────────────────────
 router.get("/vehicle/mot/:registration", async (req, res): Promise<void> => {
-  const dvsaKey = process.env.DVSA_MOT_API_KEY;
-  if (!dvsaKey) {
+  const { DVSA_CLIENT_ID, DVSA_CLIENT_SECRET, DVSA_API_KEY, DVSA_TOKEN_URL } = process.env;
+  if (!DVSA_CLIENT_ID || !DVSA_CLIENT_SECRET || !DVSA_API_KEY || !DVSA_TOKEN_URL) {
     res.status(503).json({
       error:
-        "DVSA_MOT_API_KEY is not configured. Add it in Secrets to enable MOT history lookups.",
+        "DVSA MOT API is not configured. Set DVSA_CLIENT_ID, DVSA_CLIENT_SECRET, DVSA_API_KEY and DVSA_TOKEN_URL.",
     });
     return;
   }
@@ -96,12 +129,15 @@ router.get("/vehicle/mot/:registration", async (req, res): Promise<void> => {
   }
 
   try {
+    const token = await getDvsaToken();
+    const base = process.env.DVSA_MOT_API_URL || DVSA_DEFAULT_BASE;
     const dvsaRes = await fetch(
-      `${DVSA_MOT_API_URL}?registration=${encodeURIComponent(registration)}`,
+      `${base}/${encodeURIComponent(registration)}`,
       {
         headers: {
-          "x-api-key": dvsaKey,
-          Accept: "application/json+v6",
+          Authorization: `Bearer ${token}`,
+          "X-API-Key": DVSA_API_KEY,
+          Accept: "application/json",
         },
       }
     );
@@ -135,7 +171,11 @@ router.get("/vehicle/mot/:registration", async (req, res): Promise<void> => {
 
     const rawTests = Array.isArray(vehicle.motTests) ? vehicle.motTests as Array<Record<string, unknown>> : [];
     const motTests = rawTests.map((t) => {
-      const rawDefects = Array.isArray(t.rfrAndComments) ? t.rfrAndComments as Array<Record<string, unknown>> : [];
+      const rawDefects = Array.isArray(t.defects)
+        ? t.defects as Array<Record<string, unknown>>
+        : Array.isArray(t.rfrAndComments)
+          ? t.rfrAndComments as Array<Record<string, unknown>>
+          : [];
       return {
         completedDate: t.completedDate ?? null,
         testResult: t.testResult ?? null,
