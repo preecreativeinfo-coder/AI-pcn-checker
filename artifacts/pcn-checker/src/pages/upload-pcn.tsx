@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   Car,
   CheckCircle2,
+  ExternalLink,
   File as FileIcon,
   Loader2,
   UploadCloud,
@@ -16,6 +17,7 @@ import { AppLayout } from "@/components/layout/app-layout";
 import { useVehicles, useCreateVehicle, useUpdateVehicle } from "@/hooks/use-vehicles";
 import { usePCNs, useCreatePCN } from "@/hooks/use-pcns";
 import { runOcr, type Confidence, type ExtractField } from "@/lib/ocr";
+import { paymentPortal } from "@/lib/payment-portals";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
@@ -249,6 +251,11 @@ export default function UploadPCNPage() {
     await doSave(values);
   };
 
+  // Live issuer → council/gov.uk deep-link, so users can look the PCN up when
+  // OCR only caught the number.
+  const watchedIssuer = form.watch("issuer");
+  const portal = paymentPortal(watchedIssuer);
+
   // Confidence helpers for the review form.
   const lowConf = (f: ExtractField) => !conf[f] || conf[f] === "low";
   const ringClass = (f: ExtractField) => (lowConf(f) ? "border-amber-400 focus-visible:ring-amber-300" : "");
@@ -321,6 +328,22 @@ export default function UploadPCNPage() {
                 {lowCount > 0 && <> <strong>{lowCount}</strong> field{lowCount === 1 ? " is" : "s are"} low-confidence and highlighted in amber.</>}
               </AlertDescription>
             </Alert>
+
+            {/* Look up the official record when OCR only caught the number. */}
+            <div className="flex flex-col gap-2 rounded-lg border bg-muted/20 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-muted-foreground">
+                Couldn't read everything? Look this PCN up on the issuer's website and copy the rest.
+              </span>
+              <a
+                href={portal.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex shrink-0 items-center gap-1 font-medium text-primary hover:underline"
+              >
+                {portal.known ? `Check on ${watchedIssuer}'s site` : "Find your council on gov.uk"}
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            </div>
 
             {file && (
               <Card>

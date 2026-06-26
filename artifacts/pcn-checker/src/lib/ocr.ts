@@ -1,5 +1,6 @@
 import Tesseract from "tesseract.js";
 import * as pdfjsLib from "pdfjs-dist";
+import { inferIssuerFromReference } from "@/lib/pcn-issuers";
 // Vite resolves this to a hashed URL for the pdf.js worker bundle.
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
@@ -81,17 +82,22 @@ function extractFields(text: string, ocrConfidence: number | null): {
   const confidence: Partial<Record<ExtractField, Confidence>> = {};
   const set = (k: ExtractField, c: Confidence) => (confidence[k] = c);
 
-  // ── PCN reference ──
+  // ── PCN reference ── (allow hyphen/slash separators; normalise them away)
   let pcnReference: string | null = null;
+  const refToken = "([A-Z0-9][A-Z0-9\\-/]{4,17})";
   const refLabelled = [
-    /PCN(?:\s*(?:NO|NUMBER|REF|REFERENCE|#|:))?\s*[:\-]?\s*([A-Z0-9]{6,14})/i,
-    /PENALTY\s+CHARGE\s+NOTICE\s+(?:NO\.?|NUMBER|REF\.?|REFERENCE)?\s*[:\-]?\s*([A-Z0-9]{6,14})/i,
-    /(?:REFERENCE|REF)\s*[:\-#]?\s*([A-Z0-9]{6,14})/i,
-    /NOTICE\s+(?:NO\.?|NUMBER)?\s*[:\-]?\s*([A-Z0-9]{6,14})/i,
+    new RegExp(`PCN(?:\\s*(?:NO|NUMBER|REF|REFERENCE|#|:))?\\s*[:\\-]?\\s*${refToken}`, "i"),
+    new RegExp(`PENALTY\\s+CHARGE\\s+NOTICE\\s+(?:NO\\.?|NUMBER|REF\\.?|REFERENCE)?\\s*[:\\-]?\\s*${refToken}`, "i"),
+    new RegExp(`(?:NOTICE|CHARGE)\\s+(?:NO\\.?|NUMBER|REF(?:ERENCE)?)\\s*[:\\-]?\\s*${refToken}`, "i"),
+    new RegExp(`(?:REFERENCE|REF)\\s*[:\\-#]?\\s*${refToken}`, "i"),
   ];
   for (const p of refLabelled) {
     const m = text.match(p);
-    if (m) { pcnReference = m[1].toUpperCase(); set("pcnReference", "high"); break; }
+    if (m) {
+      pcnReference = m[1].toUpperCase().replace(/[^A-Z0-9]/g, "");
+      set("pcnReference", "high");
+      break;
+    }
   }
 
   // ── Issuer ──
@@ -99,14 +105,23 @@ function extractFields(text: string, ocrConfidence: number | null): {
   const issuerLabelled = [
     /ISSUED\s+BY\s*[:\-]?\s*(.+?)(?:\r?\n|$)/i,
     /ISSUING\s+AUTHORITY\s*[:\-]?\s*(.+?)(?:\r?\n|$)/i,
+    /ON\s+BEHALF\s+OF\s*[:\-]?\s*(.+?)(?:\r?\n|$)/i,
   ];
   for (const p of issuerLabelled) {
     const m = text.match(p);
     if (m) { issuer = m[1].trim().substring(0, 100); set("issuer", "high"); break; }
   }
   if (!issuer) {
-    const m = text.match(/([A-Z][A-Za-z\s]+(?:COUNCIL|BOROUGH|DISTRICT|CITY COUNCIL|COUNTY|AUTHORITY)|TRANSPORT FOR LONDON|TFL)/i);
+    // Councils and well-known private parking operators by name anywhere in the text.
+    const m = text.match(
+      /([A-Z][A-Za-z.&'\s]+(?:COUNCIL|BOROUGH|DISTRICT|CITY COUNCIL|COUNTY COUNCIL|AUTHORITY)|TRANSPORT FOR LONDON|\bTFL\b|PARKING\s*EYE|EURO\s*CAR\s*PARKS|UK\s*PARKING\s*CONTROL|\bUKPC\b|HIGHVIEW\s*PARKING|SMART\s*PARKING|CIVIL\s*ENFORCEMENT|NATIONAL\s*CAR\s*PARKS|\bNCP\b)/i,
+    );
     if (m) { issuer = m[1].trim().substring(0, 100); set("issuer", "medium"); }
+  }
+  if (!issuer) {
+    // Last resort: infer from the reference number (low confidence).
+    const inferred = inferIssuerFromReference(pcnReference);
+    if (inferred) { issuer = inferred; set("issuer", "low"); }
   }
 
   // ── Dates (collect all for positional fallback) ──
@@ -150,7 +165,7 @@ function extractFields(text: string, ocrConfidence: number | null): {
 
   // ── Amount ──
   let amount: number | null = null;
-  const amtLabelled = text.match(/(?:penalty\s+charge|fine|amount\s+(?:due|payable)|charge)\s*[:\-]?\s*£?\s*(\d+(?:\.\d{1,2})?)/i);
+  const amtLabelled = text.match(/(?:penalty\s+charge|fine|amount\s+(?:due|payable)|total\s+(?:amount\s+)?(?:to\s+pay|due|payable)|balance(?:\s+due)?|charge)\s*[:\-]?\s*£?\s*(\d+(?:\.\d{1,2})?)/i);
   if (amtLabelled) {
     const v = parseFloat(amtLabelled[1]);
     if (v > 0 && v < 10000) { amount = v; set("amount", "high"); }
