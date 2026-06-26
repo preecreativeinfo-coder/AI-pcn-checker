@@ -62,6 +62,24 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 
+// In dev the lookups go through the local Express server; in prod they're
+// same-origin Vercel functions (mirrors the base-URL logic in main.tsx).
+const API_BASE = import.meta.env.DEV ? "http://localhost:3001" : "";
+
+interface MotSummary {
+  expiry: string | null;
+  result: string | null;
+}
+
+/** Pick the most recent MOT test to surface its expiry + result on the card. */
+function latestMot(motTests: Array<{ completedDate?: string; expiryDate?: string; testResult?: string }> | undefined): MotSummary {
+  if (!Array.isArray(motTests) || motTests.length === 0) return { expiry: null, result: null };
+  const latest = [...motTests].sort(
+    (a, b) => new Date(b.completedDate ?? 0).getTime() - new Date(a.completedDate ?? 0).getTime(),
+  )[0];
+  return { expiry: latest?.expiryDate ?? null, result: latest?.testResult ?? null };
+}
+
 const vehicleSchema = z.object({
   registration_number: z.string().min(1, "Registration number is required").toUpperCase(),
   make: z.string().min(1, "Make is required"),
@@ -369,6 +387,7 @@ export default function VehiclesPage() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [dvlaPreview, setDvlaPreview] = useState<VehicleLookupResult | null>(null);
   const [cardDvlaData, setCardDvlaData] = useState<Record<string, VehicleLookupResult>>({});
+  const [cardMot, setCardMot] = useState<Record<string, MotSummary>>({});
   const [cardLoading, setCardLoading] = useState<Record<string, boolean>>({});
   const [cardError, setCardError] = useState<Record<string, boolean>>({});
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
@@ -503,6 +522,15 @@ export default function VehiclesPage() {
         .then((result) => setCardDvlaData((prev) => ({ ...prev, [v.id]: result })))
         .catch(() => setCardError((prev) => ({ ...prev, [v.id]: true })))
         .finally(() => setCardLoading((prev) => ({ ...prev, [v.id]: false })));
+
+      // DVSA MOT history → latest expiry for the card (works without DVLA).
+      fetch(`${API_BASE}/api/vehicle/mot/${encodeURIComponent(v.registration_number)}`)
+        .then(async (r) => {
+          if (!r.ok) return;
+          const d = (await r.json()) as { motTests?: Array<{ completedDate?: string; expiryDate?: string; testResult?: string }> };
+          setCardMot((prev) => ({ ...prev, [v.id]: latestMot(d.motTests) }));
+        })
+        .catch(() => {});
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vehicles]);
@@ -690,6 +718,9 @@ export default function VehiclesPage() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {vehicles.map((vehicle) => {
               const dvla = cardDvlaData[vehicle.id];
+              const mot = cardMot[vehicle.id];
+              const motExpiry = dvla?.motExpiryDate ?? mot?.expiry ?? null;
+              const hasAny = !!dvla || !!mot;
               const isExpanded = expandedCard === vehicle.id;
               const isChecking = cardLoading[vehicle.id];
 
@@ -739,14 +770,15 @@ export default function VehiclesPage() {
                       </div>
                     </div>
 
-                    {/* DVLA-sourced MOT & Tax — auto-fetched on load */}
-                    {isChecking && !dvla ? (
+                    {/* MOT (DVSA) & Tax (DVLA) — auto-fetched on load */}
+                    {isChecking && !hasAny ? (
                       <div className="space-y-2">
                         <Skeleton className="h-11 rounded-lg" />
                         <Skeleton className="h-11 rounded-lg" />
                       </div>
-                    ) : dvla ? (
+                    ) : hasAny ? (
                       <div className="space-y-2">
+                        {/* MOT — prefers a real expiry date (DVLA or latest DVSA test) */}
                         <div className="flex items-center justify-between rounded-lg border bg-muted/20 px-3 py-2">
                           <span className="flex items-center gap-2 text-sm font-medium">
                             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -754,36 +786,46 @@ export default function VehiclesPage() {
                             </span>
                             MOT
                           </span>
-                          {dvla.motExpiryDate ? (
+                          {motExpiry ? (
                             <span className="text-xs">
                               <span className="text-muted-foreground">Expires </span>
-                              <span className="font-semibold text-green-600">{formatDate(dvla.motExpiryDate)}</span>
+                              <span className="font-semibold text-green-600">{formatDate(motExpiry)}</span>
                             </span>
-                          ) : (
+                          ) : dvla?.motStatus ? (
                             motBadge(dvla.motStatus)
-                          )}
-                        </div>
-                        <div className="flex items-center justify-between rounded-lg border bg-muted/20 px-3 py-2">
-                          <span className="flex items-center gap-2 text-sm font-medium">
-                            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary">
-                              <Car className="h-3.5 w-3.5" />
-                            </span>
-                            Tax
-                          </span>
-                          {dvla.taxDueDate ? (
-                            <span className="text-xs">
-                              <span className="text-muted-foreground">Due </span>
-                              <span className="font-semibold text-green-600">{formatDate(dvla.taxDueDate)}</span>
-                            </span>
+                          ) : mot?.result ? (
+                            <span className="text-xs text-muted-foreground">Last test: {mot.result}</span>
                           ) : (
-                            taxBadge(dvla.taxStatus)
+                            <span className="text-xs text-muted-foreground">No data</span>
                           )}
                         </div>
+                        {/* Tax — DVLA only */}
+                        {dvla ? (
+                          <div className="flex items-center justify-between rounded-lg border bg-muted/20 px-3 py-2">
+                            <span className="flex items-center gap-2 text-sm font-medium">
+                              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary">
+                                <Car className="h-3.5 w-3.5" />
+                              </span>
+                              Tax
+                            </span>
+                            {dvla.taxDueDate ? (
+                              <span className="text-xs">
+                                <span className="text-muted-foreground">Due </span>
+                                <span className="font-semibold text-green-600">{formatDate(dvla.taxDueDate)}</span>
+                              </span>
+                            ) : (
+                              taxBadge(dvla.taxStatus)
+                            )}
+                          </div>
+                        ) : (
+                          <p className="px-1 text-[11px] text-muted-foreground">
+                            Add <code className="rounded bg-muted px-1">DVLA_API_KEY</code> for tax status.
+                          </p>
+                        )}
                       </div>
                     ) : cardError[vehicle.id] ? (
                       <p className="text-xs text-muted-foreground">
-                        Live DVLA details unavailable. Add{" "}
-                        <code className="rounded bg-muted px-1">DVLA_API_KEY</code> in Vercel to enable.
+                        Live vehicle details unavailable right now. Try again shortly.
                       </p>
                     ) : null}
 
