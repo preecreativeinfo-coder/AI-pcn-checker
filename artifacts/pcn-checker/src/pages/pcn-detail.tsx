@@ -60,6 +60,7 @@ const updatePcnSchema = z.object({
   due_date: z.string().optional().nullable(),
   location: z.string().optional().nullable(),
   contravention_code: z.string().optional().nullable(),
+  contravention_time: z.string().optional().nullable(),
   vehicle_id: z.string().optional().nullable(),
 });
 
@@ -104,6 +105,7 @@ export default function PCNDetailPage({ id }: { id: string }) {
         due_date: pcn.due_date || "",
         location: pcn.location || "",
         contravention_code: pcn.contravention_code || "",
+        contravention_time: pcn.contravention_time || "",
         vehicle_id: pcn.vehicle_id || "none",
       });
 
@@ -138,6 +140,7 @@ export default function PCNDetailPage({ id }: { id: string }) {
         due_date: values.due_date || null,
         location: values.location || null,
         contravention_code: values.contravention_code || null,
+        contravention_time: values.contravention_time || null,
         vehicle_id: values.vehicle_id === "none" ? null : values.vehicle_id,
       });
       setIsEditing(false);
@@ -307,6 +310,9 @@ export default function PCNDetailPage({ id }: { id: string }) {
                         <FormField control={form.control} name="contravention_code" render={({ field }) => (
                           <FormItem><FormLabel>Contravention Code</FormLabel><FormControl><Input {...field} value={field.value || ""} placeholder="e.g. 11" /></FormControl><FormMessage /></FormItem>
                         )} />
+                        <FormField control={form.control} name="contravention_time" render={({ field }) => (
+                          <FormItem><FormLabel>Contravention Time</FormLabel><FormControl><Input type="time" {...field} value={field.value || ""} /></FormControl><FormMessage /></FormItem>
+                        )} />
                         <FormField control={form.control} name="vehicle_id" render={({ field }) => (
                           <FormItem>
                             <FormLabel>Vehicle</FormLabel>
@@ -354,6 +360,9 @@ export default function PCNDetailPage({ id }: { id: string }) {
                       </Field>
                       <Field label="Contravention Code" icon={<FileText className="h-4 w-4" />}>
                         {pcn.contravention_code || "—"}
+                      </Field>
+                      <Field label="Contravention Time" icon={<FileText className="h-4 w-4" />}>
+                        {pcn.contravention_time || "—"}
                       </Field>
                       <div className="sm:col-span-2">
                         <Field label="Location" icon={<FileText className="h-4 w-4" />}>

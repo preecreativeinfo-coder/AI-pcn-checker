@@ -8,7 +8,17 @@ export interface Vehicle {
   registration_number: string;
   make: string;
   model: string;
+  colour: string | null;
+  vehicle_type: string | null;
   created_at: string;
+}
+
+export interface VehicleInput {
+  registration_number: string;
+  make: string;
+  model: string;
+  colour?: string | null;
+  vehicle_type?: string | null;
 }
 
 export function useVehicles() {
@@ -36,14 +46,38 @@ export function useCreateVehicle() {
   const { session } = useAuth();
 
   return useMutation({
-    mutationFn: async (vehicle: Omit<Vehicle, "id" | "user_id" | "created_at">) => {
+    mutationFn: async (vehicle: VehicleInput) => {
       if (!session?.user?.id) throw new Error("Not authenticated");
       const { data, error } = await supabase
         .from("vehicles")
         .insert([{ ...vehicle, user_id: session.user.id }])
         .select()
         .single();
-        
+
+      if (error) throw error;
+      return data as Vehicle;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["vehicles", session?.user?.id] });
+    },
+  });
+}
+
+export function useUpdateVehicle() {
+  const queryClient = useQueryClient();
+  const { session } = useAuth();
+
+  return useMutation({
+    mutationFn: async ({ id, ...fields }: Partial<VehicleInput> & { id: string }) => {
+      if (!session?.user?.id) throw new Error("Not authenticated");
+      const { data, error } = await supabase
+        .from("vehicles")
+        .update(fields)
+        .eq("id", id)
+        .eq("user_id", session.user.id)
+        .select()
+        .single();
+
       if (error) throw error;
       return data as Vehicle;
     },

@@ -79,6 +79,8 @@
     "zod": "catalog:"
   },
   "dependencies": {
-    "leaflet": "^1.9.4"
+    "heic2any": "^0.0.4",
+    "leaflet": "^1.9.4",
+    "mammoth": "^1.12.0"
   }
 }

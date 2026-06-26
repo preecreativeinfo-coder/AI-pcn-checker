@@ -21,6 +21,7 @@ export interface PCN {
   due_date: string | null;
   location: string | null;
   contravention_code: string | null;
+  contravention_time: string | null;
   file_path: string | null;
   ocr_raw_text: string | null;
   created_at: string;
