@@ -17,7 +17,8 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { FileText } from "lucide-react";
+import { FileText, Check } from "lucide-react";
+import { ACCOUNT_TYPE_OPTIONS, type AccountType } from "@/lib/account";
 
 const authSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -28,6 +29,8 @@ export default function AuthPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [accountType, setAccountType] = useState<AccountType>("personal");
+  const [orgName, setOrgName] = useState("");
 
   const form = useForm<z.infer<typeof authSchema>>({
     resolver: zodResolver(authSchema),
@@ -44,6 +47,14 @@ export default function AuthPage() {
         const { error } = await supabase.auth.signUp({
           email: values.email,
           password: values.password,
+          options: {
+            // Recorded so AccountProvider can bootstrap the account on first login.
+            data: {
+              account_type: accountType,
+              account_name:
+                accountType === "personal" ? null : orgName.trim() || values.email,
+            },
+          },
         });
         if (error) throw error;
         toast({
@@ -139,9 +150,55 @@ export default function AuthPage() {
                     </Button>
                   </TabsContent>
                   
-                  <TabsContent value="signup" className="m-0 pt-2">
-                    <Button 
-                      className="w-full" 
+                  <TabsContent value="signup" className="m-0 space-y-4 pt-2">
+                    {/* Account type selector */}
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">Account type</p>
+                      <div className="space-y-2">
+                        {ACCOUNT_TYPE_OPTIONS.map((opt) => {
+                          const active = accountType === opt.value;
+                          return (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              onClick={() => setAccountType(opt.value)}
+                              className={`flex w-full select-none items-start gap-3 rounded-lg border p-3 text-left transition-colors ${
+                                active ? "border-primary bg-primary/5" : "hover:bg-muted/50"
+                              }`}
+                            >
+                              <span
+                                className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                                  active ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40"
+                                }`}
+                              >
+                                {active && <Check className="h-3 w-3" />}
+                              </span>
+                              <span>
+                                <span className="block text-sm font-medium">{opt.label}</span>
+                                <span className="block text-xs text-muted-foreground">{opt.description}</span>
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {accountType !== "personal" && (
+                      <div className="space-y-1.5">
+                        <label htmlFor="org-name" className="text-sm font-medium">
+                          {accountType === "business_agency" ? "Agency name" : "Business name"}
+                        </label>
+                        <Input
+                          id="org-name"
+                          placeholder={accountType === "business_agency" ? "e.g. Acme Parking Services" : "e.g. Acme Logistics Ltd"}
+                          value={orgName}
+                          onChange={(e) => setOrgName(e.target.value)}
+                        />
+                      </div>
+                    )}
+
+                    <Button
+                      className="w-full"
                       onClick={form.handleSubmit((v) => onSubmit(v, "signup"))}
                       disabled={isLoading}
                       data-testid="btn-signup"

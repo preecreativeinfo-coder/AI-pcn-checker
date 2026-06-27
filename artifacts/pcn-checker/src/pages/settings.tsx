@@ -17,8 +17,15 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/lib/auth";
+import { useAccount, type AccountType } from "@/lib/account";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
+
+const ACCOUNT_TYPE_LABEL: Record<AccountType, string> = {
+  personal: "Personal",
+  business_fleet: "Business — Fleet",
+  business_agency: "Business — Agency",
+};
 
 function DeleteAccountDialog() {
   const { session, signOut } = useAuth();
@@ -108,6 +115,7 @@ function DeleteAccountDialog() {
 
 export default function SettingsPage() {
   const { user, signOut } = useAuth();
+  const { account } = useAccount();
 
   return (
     <AppLayout>
@@ -144,6 +152,30 @@ export default function SettingsPage() {
                 <div className="text-sm font-medium">Driver Account</div>
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Account type & role */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Account type</CardTitle>
+            <CardDescription>Your plan and role.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Type</span>
+              <span className="font-medium">{ACCOUNT_TYPE_LABEL[account.type]}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Your role</span>
+              <span className="font-medium capitalize">{account.role}</span>
+            </div>
+            {account.name && (
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Organisation</span>
+                <span className="font-medium">{account.name}</span>
+              </div>
+            )}
           </CardContent>
         </Card>
 
