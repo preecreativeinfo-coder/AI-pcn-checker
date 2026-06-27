@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
-import { Building2, Car, FileText, LayoutDashboard, LogOut, Receipt, Settings, UploadCloud, Users } from "lucide-react";
+import { Building2, Car, FileText, Files, LayoutDashboard, LogOut, Receipt, Settings, UploadCloud, Users } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useAccount } from "@/lib/account";
 import { Button } from "@/components/ui/button";
@@ -84,6 +84,7 @@ function SidebarContent({ user, signOut }: { user: any; signOut: () => void }) {
     ...(isAgency ? [{ href: "/clients", icon: Building2, label: "Clients" }] : []),
     ...(isBusiness ? [{ href: "/team", icon: Users, label: "Team" }] : []),
     { href: "/pcns/upload", icon: UploadCloud, label: "Upload PCN" },
+    ...(isBusiness ? [{ href: "/pcns/bulk", icon: Files, label: "Bulk Upload" }] : []),
     { href: "/settings", icon: Settings, label: "Settings" },
   ];
 

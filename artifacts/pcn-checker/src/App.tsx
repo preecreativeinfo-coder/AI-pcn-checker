@@ -18,6 +18,7 @@ import SettingsPage from "@/pages/settings";
 import TollsPage from "@/pages/tolls";
 import ClientsPage from "@/pages/clients";
 import TeamPage from "@/pages/team";
+import BulkUploadPage from "@/pages/bulk-upload";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -117,6 +118,10 @@ function Router() {
 
           <Route path="/pcns/upload">
             {() => <ProtectedRoute component={UploadPCNPage} />}
+          </Route>
+
+          <Route path="/pcns/bulk">
+            {() => <ProtectedRoute component={BulkUploadPage} />}
           </Route>
 
           <Route path="/pcns/:id">
