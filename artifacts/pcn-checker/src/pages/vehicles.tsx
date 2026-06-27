@@ -20,6 +20,9 @@ import {
 } from "lucide-react";
 import { AppLayout } from "@/components/layout/app-layout";
 import { useVehicles, useCreateVehicle, useDeleteVehicle } from "@/hooks/use-vehicles";
+import { useAccount } from "@/lib/account";
+import { useClients } from "@/hooks/use-clients";
+import { ResponsiveSelect } from "@/components/ui/responsive-select";
 import {
   useLookupVehicle,
   useGetMotHistory,
@@ -84,6 +87,7 @@ const vehicleSchema = z.object({
   registration_number: z.string().min(1, "Registration number is required").toUpperCase(),
   make: z.string().min(1, "Make is required"),
   model: z.string().min(1, "Model is required"),
+  client_id: z.string().optional().nullable(),
 });
 
 type VehicleFormValues = z.infer<typeof vehicleSchema>;
@@ -382,6 +386,8 @@ export default function VehiclesPage() {
   const createVehicle = useCreateVehicle();
   const deleteVehicle = useDeleteVehicle();
   const lookupVehicle = useLookupVehicle();
+  const { isAgency } = useAccount();
+  const { data: clients } = useClients();
   const { toast } = useToast();
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -400,6 +406,7 @@ export default function VehiclesPage() {
       registration_number: "",
       make: "",
       model: "",
+      client_id: "",
     },
   });
 
@@ -478,8 +485,17 @@ export default function VehiclesPage() {
   };
 
   const onSubmit = async (values: VehicleFormValues) => {
+    if (isAgency && !values.client_id) {
+      toast({ variant: "destructive", title: "Select a client", description: "Agency vehicles must be assigned to a client." });
+      return;
+    }
     try {
-      await createVehicle.mutateAsync(values);
+      await createVehicle.mutateAsync({
+        registration_number: values.registration_number,
+        make: values.make,
+        model: values.model,
+        client_id: isAgency ? values.client_id || null : null,
+      });
       toast({
         title: "Vehicle added",
         description: `${values.registration_number} has been saved.`,
@@ -674,6 +690,26 @@ export default function VehiclesPage() {
                       )}
                     />
                   </div>
+
+                  {isAgency && (
+                    <FormField
+                      control={form.control}
+                      name="client_id"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Client</FormLabel>
+                          <ResponsiveSelect
+                            value={field.value || ""}
+                            onValueChange={field.onChange}
+                            placeholder={clients?.length ? "Select client" : "No clients yet — add one first"}
+                            title="Client"
+                            options={(clients ?? []).map((c) => ({ value: c.id, label: c.name }))}
+                          />
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
 
                   <div className="flex justify-end gap-2 pt-2">
                     <Button

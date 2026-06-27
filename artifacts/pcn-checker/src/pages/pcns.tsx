@@ -4,7 +4,10 @@ import { format, differenceInCalendarDays } from "date-fns";
 import { ChevronRight, Download, FileText, Search, UploadCloud } from "lucide-react";
 import { AppLayout } from "@/components/layout/app-layout";
 import { usePCNs, type PCN } from "@/hooks/use-pcns";
+import { useVehicles } from "@/hooks/use-vehicles";
+import { useClients } from "@/hooks/use-clients";
 import { useAccount } from "@/lib/account";
+import { ResponsiveSelect } from "@/components/ui/responsive-select";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -48,9 +51,15 @@ function dueText(dueDate: string, status: string): { text: string; className: st
 
 export default function PCNsPage() {
   const { data: pcns, isLoading } = usePCNs();
-  const { isBusiness } = useAccount();
+  const { data: vehicles } = useVehicles();
+  const { data: clients } = useClients();
+  const { isBusiness, isAgency } = useAccount();
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [groupBy, setGroupBy] = useState<"none" | "vehicle" | "status">("none");
+  const [clientFilter, setClientFilter] = useState<string>("all");
+
+  const vehicleById = new Map((vehicles ?? []).map((v) => [v.id, v]));
 
   const all = pcns || [];
   const filteredPcns = all.filter((pcn) => {
@@ -63,6 +72,83 @@ export default function PCNsPage() {
       pcn.location?.toLowerCase().includes(q);
     return matchesStatus && matchesSearch;
   });
+
+  // Agency: filter by the PCN's vehicle's client.
+  const clientScoped =
+    isAgency && clientFilter !== "all"
+      ? filteredPcns.filter((p) => p.vehicle_id && vehicleById.get(p.vehicle_id)?.client_id === clientFilter)
+      : filteredPcns;
+
+  // Business: optionally group by vehicle or status (with per-group cost total).
+  type Group = { key: string; label: string; items: PCN[]; total: number };
+  const groups: Group[] = (() => {
+    if (!isBusiness || groupBy === "none") {
+      return [{ key: "all", label: "", items: clientScoped, total: 0 }];
+    }
+    const map = new Map<string, Group>();
+    for (const p of clientScoped) {
+      let key: string;
+      let label: string;
+      if (groupBy === "vehicle") {
+        const v = p.vehicle_id ? vehicleById.get(p.vehicle_id) : null;
+        key = p.vehicle_id ?? "none";
+        label = v ? v.registration_number : "No vehicle";
+      } else {
+        key = p.status;
+        label = statusLabel(p.status);
+      }
+      const g = map.get(key) ?? { key, label, items: [], total: 0 };
+      g.items.push(p);
+      g.total += p.amount || 0;
+      map.set(key, g);
+    }
+    return [...map.values()].sort((a, b) => b.items.length - a.items.length);
+  })();
+  const grouped = isBusiness && groupBy !== "none";
+
+  const renderRow = (pcn: PCN) => {
+    const due = pcn.due_date ? dueText(pcn.due_date, pcn.status) : null;
+    return (
+      <Link key={pcn.id} href={`/pcns/${pcn.id}`} data-testid={`link-pcn-${pcn.id}`}>
+        <div className="flex items-center gap-4 rounded-xl border bg-card p-4 transition-colors hover:bg-muted/40">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+            <FileText className="h-5 w-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold tracking-wide">{pcn.pcn_reference}</span>
+              <Badge variant="outline" className={`text-xs ${statusClass(pcn.status)}`}>
+                {statusLabel(pcn.status)}
+              </Badge>
+              {pcn.file_path && (
+                <FileText className="h-3.5 w-3.5 text-green-600" aria-label="Document attached" />
+              )}
+            </div>
+            <div className="mt-0.5 truncate text-sm text-muted-foreground">{pcn.issuer}</div>
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+              <span>{pcn.issue_date ? format(new Date(pcn.issue_date), "dd MMM yyyy") : "Unknown date"}</span>
+              {pcn.location && (
+                <>
+                  <span className="text-muted-foreground/40">·</span>
+                  <span className="truncate">{pcn.location}</span>
+                </>
+              )}
+              {due && (
+                <>
+                  <span className="text-muted-foreground/40">·</span>
+                  <span className={due.className}>{due.text}</span>
+                </>
+              )}
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2 self-stretch">
+            <span className="text-base font-semibold">{pcn.amount != null ? `£${pcn.amount.toFixed(2)}` : "0"}</span>
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          </div>
+        </div>
+      </Link>
+    );
+  };
 
   return (
     <AppLayout>
@@ -77,7 +163,7 @@ export default function PCNsPage() {
           </div>
           <div className="flex gap-2">
             {isBusiness && (
-              <Button variant="outline" onClick={() => exportPcnsCsv(filteredPcns)} disabled={filteredPcns.length === 0}>
+              <Button variant="outline" onClick={() => exportPcnsCsv(clientScoped)} disabled={clientScoped.length === 0}>
                 <Download className="mr-2 h-4 w-4" /> Export CSV
               </Button>
             )}
@@ -122,77 +208,83 @@ export default function PCNsPage() {
           </div>
         </div>
 
+        {/* Business/agency controls: group-by + client filter */}
+        {(isBusiness || isAgency) && (
+          <div className="flex flex-wrap items-center gap-4">
+            {isBusiness && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Group by</span>
+                <div className="flex gap-1">
+                  {(["none", "vehicle", "status"] as const).map((g) => (
+                    <button
+                      key={g}
+                      onClick={() => setGroupBy(g)}
+                      className={`rounded-md px-2.5 py-1 text-xs font-medium capitalize transition-colors ${
+                        groupBy === g
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted/60 text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      {g === "none" ? "None" : g}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {isAgency && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Client</span>
+                <div className="w-48">
+                  <ResponsiveSelect
+                    value={clientFilter}
+                    onValueChange={setClientFilter}
+                    title="Filter by client"
+                    options={[{ value: "all", label: "All clients" }, ...(clients ?? []).map((c) => ({ value: c.id, label: c.name }))]}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* List */}
-        <div className="space-y-3">
-          {isLoading ? (
-            Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
-          ) : filteredPcns.length === 0 ? (
-            <div className="rounded-lg border border-dashed bg-muted/20 py-12 text-center text-sm text-muted-foreground">
-              {all.length === 0 ? (
-                <>
-                  No penalty charge notices yet.
-                  <div className="mt-3">
-                    <Link href="/pcns/upload" className="text-primary hover:underline">
-                      Upload your first notice
-                    </Link>
-                  </div>
-                </>
-              ) : (
-                "No notices match your filters."
-              )}
-            </div>
-          ) : (
-            filteredPcns.map((pcn) => {
-              const due = pcn.due_date ? dueText(pcn.due_date, pcn.status) : null;
-              return (
-                <Link key={pcn.id} href={`/pcns/${pcn.id}`} data-testid={`link-pcn-${pcn.id}`}>
-                  <div className="flex items-center gap-4 rounded-xl border bg-card p-4 transition-colors hover:bg-muted/40">
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                      <FileText className="h-5 w-5" />
-                    </span>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold tracking-wide">{pcn.pcn_reference}</span>
-                        <Badge variant="outline" className={`text-xs ${statusClass(pcn.status)}`}>
-                          {statusLabel(pcn.status)}
-                        </Badge>
-                        {pcn.file_path && (
-                          <FileText className="h-3.5 w-3.5 text-green-600" aria-label="Document attached" />
-                        )}
-                      </div>
-                      <div className="mt-0.5 truncate text-sm text-muted-foreground">{pcn.issuer}</div>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-                        <span>
-                          {pcn.issue_date ? format(new Date(pcn.issue_date), "dd MMM yyyy") : "Unknown date"}
-                        </span>
-                        {pcn.location && (
-                          <>
-                            <span className="text-muted-foreground/40">·</span>
-                            <span className="truncate">{pcn.location}</span>
-                          </>
-                        )}
-                        {due && (
-                          <>
-                            <span className="text-muted-foreground/40">·</span>
-                            <span className={due.className}>{due.text}</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex shrink-0 items-center gap-2 self-stretch">
-                      <span className="text-base font-semibold">
-                        {pcn.amount != null ? `£${pcn.amount.toFixed(2)}` : "0"}
-                      </span>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                  </div>
-                </Link>
-              );
-            })
-          )}
-        </div>
+        {isLoading ? (
+          <div className="space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
+          </div>
+        ) : clientScoped.length === 0 ? (
+          <div className="rounded-lg border border-dashed bg-muted/20 py-12 text-center text-sm text-muted-foreground">
+            {all.length === 0 ? (
+              <>
+                No penalty charge notices yet.
+                <div className="mt-3">
+                  <Link href="/pcns/upload" className="text-primary hover:underline">
+                    Upload your first notice
+                  </Link>
+                </div>
+              </>
+            ) : (
+              "No notices match your filters."
+            )}
+          </div>
+        ) : grouped ? (
+          <div className="space-y-6">
+            {groups.map((g) => (
+              <div key={g.key} className="space-y-3">
+                <div className="flex items-center justify-between px-1">
+                  <h3 className="text-sm font-semibold">
+                    {g.label}
+                    <span className="ml-2 font-normal text-muted-foreground">{g.items.length}</span>
+                  </h3>
+                  <span className="text-sm text-muted-foreground">£{g.total.toFixed(2)}</span>
+                </div>
+                {g.items.map(renderRow)}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-3">{clientScoped.map(renderRow)}</div>
+        )}
       </div>
     </AppLayout>
   );

@@ -16,6 +16,8 @@ import {
 import { AppLayout } from "@/components/layout/app-layout";
 import { useVehicles, useCreateVehicle, useUpdateVehicle } from "@/hooks/use-vehicles";
 import { usePCNs, useCreatePCN } from "@/hooks/use-pcns";
+import { useAccount } from "@/lib/account";
+import { useClients } from "@/hooks/use-clients";
 import { runOcr, type Confidence, type ExtractField } from "@/lib/ocr";
 import { paymentPortal } from "@/lib/payment-portals";
 import { supabase } from "@/lib/supabase";
@@ -96,6 +98,9 @@ export default function UploadPCNPage() {
 
   const { data: vehicles } = useVehicles();
   const { data: pcns } = usePCNs();
+  const { isAgency } = useAccount();
+  const { data: clients } = useClients();
+  const [clientId, setClientId] = useState("");
   const createPCN = useCreatePCN();
   const createVehicle = useCreateVehicle();
   const updateVehicle = useUpdateVehicle();
@@ -204,12 +209,17 @@ export default function UploadPCNPage() {
             await updateVehicle.mutateAsync({ id: existing.id, ...patch });
           }
         } else {
+          if (isAgency && !clientId) {
+            toast({ variant: "destructive", title: "Select a client", description: "Assign this vehicle to a client before saving." });
+            return;
+          }
           const created = await createVehicle.mutateAsync({
             registration_number: reg.toUpperCase(),
             make: values.make || "Unknown",
             model: values.model || "Unknown",
             colour: values.colour || null,
             vehicle_type: values.vehicle_type || null,
+            client_id: isAgency ? clientId || null : null,
           });
           vehicleId = created.id;
         }
@@ -458,6 +468,26 @@ export default function UploadPCNPage() {
                         <h3 className="font-semibold">Vehicle</h3>
                         <span className="text-xs text-muted-foreground">— matched or created automatically from the registration</span>
                       </div>
+
+                      {isAgency && (
+                        <div>
+                          <label className="text-sm font-medium">
+                            Client <span className="text-rose-500">*</span>
+                          </label>
+                          <div className="mt-1.5">
+                            <ResponsiveSelect
+                              value={clientId}
+                              onValueChange={setClientId}
+                              title="Client"
+                              placeholder={clients?.length ? "Select client" : "No clients yet — add one in Clients"}
+                              options={(clients ?? []).map((c) => ({ value: c.id, label: c.name }))}
+                            />
+                          </div>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            New vehicles created from this notice will be assigned to this client.
+                          </p>
+                        </div>
+                      )}
 
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                         <FormField control={form.control} name="registration_number" render={({ field }) => {
