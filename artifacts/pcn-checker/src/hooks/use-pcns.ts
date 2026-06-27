@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
+import { useAccount } from "@/lib/account";
 
 export type PCNStatus =
   | "pending"
@@ -30,63 +31,61 @@ export interface PCN {
 
 export function usePCNs() {
   const { session } = useAuth();
-  
+  const { account } = useAccount();
+  const userId = session?.user?.id;
+  // Scope to the account once it's loaded; fall back to the user while it loads
+  // (and pre-migration). RLS enforces the real boundary either way.
+  const scope = account.id ?? userId;
+
   return useQuery({
-    queryKey: ["pcns", session?.user?.id],
+    queryKey: ["pcns", scope],
+    enabled: !!userId,
     queryFn: async () => {
-      if (!session?.user?.id) throw new Error("Not authenticated");
-      const { data, error } = await supabase
-        .from("pcns")
-        .select("*")
-        .eq("user_id", session.user.id)
-        .order("created_at", { ascending: false });
-        
+      let query = supabase.from("pcns").select("*").order("created_at", { ascending: false });
+      query = account.id ? query.eq("account_id", account.id) : query.eq("user_id", userId!);
+      const { data, error } = await query;
       if (error) throw error;
       return data as PCN[];
     },
-    enabled: !!session?.user?.id,
   });
 }
 
 export function usePCN(id: string) {
   const { session } = useAuth();
-  
+  const { account } = useAccount();
+  const scope = account.id ?? session?.user?.id;
+
   return useQuery({
-    queryKey: ["pcns", session?.user?.id, id],
+    queryKey: ["pcns", scope, id],
+    enabled: !!session?.user?.id && !!id,
     queryFn: async () => {
-      if (!session?.user?.id) throw new Error("Not authenticated");
-      const { data, error } = await supabase
-        .from("pcns")
-        .select("*")
-        .eq("id", id)
-        .eq("user_id", session.user.id)
-        .single();
-        
+      // Filter by id only — RLS restricts visibility to the user's account.
+      const { data, error } = await supabase.from("pcns").select("*").eq("id", id).single();
       if (error) throw error;
       return data as PCN;
     },
-    enabled: !!session?.user?.id && !!id,
   });
 }
 
 export function useCreatePCN() {
   const queryClient = useQueryClient();
   const { session } = useAuth();
+  const { account } = useAccount();
+  const scope = account.id ?? session?.user?.id;
 
   return useMutation({
     mutationFn: async (pcn: Partial<PCN>) => {
       if (!session?.user?.id) throw new Error("Not authenticated");
       const { data, error } = await supabase
         .from("pcns")
-        .insert([{ ...pcn, user_id: session.user.id }])
+        .insert([{ ...pcn, user_id: session.user.id, account_id: account.id ?? null }])
         .select()
         .single();
-        
       if (error) throw error;
       return data as PCN;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["pcns", session?.user?.id] });
+      queryClient.invalidateQueries({ queryKey: ["pcns", scope] });
     },
   });
 }
@@ -94,20 +93,17 @@ export function useCreatePCN() {
 export function useDeletePCN() {
   const queryClient = useQueryClient();
   const { session } = useAuth();
+  const { account } = useAccount();
+  const scope = account.id ?? session?.user?.id;
 
   return useMutation({
     mutationFn: async (id: string) => {
       if (!session?.user?.id) throw new Error("Not authenticated");
-      const { error } = await supabase
-        .from("pcns")
-        .delete()
-        .eq("id", id)
-        .eq("user_id", session.user.id);
-
+      const { error } = await supabase.from("pcns").delete().eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["pcns", session?.user?.id] });
+      queryClient.invalidateQueries({ queryKey: ["pcns", scope] });
     },
   });
 }
@@ -115,6 +111,8 @@ export function useDeletePCN() {
 export function useUpdatePCN() {
   const queryClient = useQueryClient();
   const { session } = useAuth();
+  const { account } = useAccount();
+  const scope = account.id ?? session?.user?.id;
 
   return useMutation({
     mutationFn: async ({ id, ...pcn }: Partial<PCN> & { id: string }) => {
@@ -123,16 +121,14 @@ export function useUpdatePCN() {
         .from("pcns")
         .update(pcn)
         .eq("id", id)
-        .eq("user_id", session.user.id)
         .select()
         .single();
-        
       if (error) throw error;
       return data as PCN;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["pcns", session?.user?.id] });
-      queryClient.invalidateQueries({ queryKey: ["pcns", session?.user?.id, data.id] });
+      queryClient.invalidateQueries({ queryKey: ["pcns", scope] });
+      queryClient.invalidateQueries({ queryKey: ["pcns", scope, data.id] });
     },
   });
 }
