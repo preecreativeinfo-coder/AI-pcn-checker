@@ -16,6 +16,8 @@ import UploadPCNPage from "@/pages/upload-pcn";
 import PCNDetailPage from "@/pages/pcn-detail";
 import SettingsPage from "@/pages/settings";
 import TollsPage from "@/pages/tolls";
+import ClientsPage from "@/pages/clients";
+import TeamPage from "@/pages/team";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -95,6 +97,14 @@ function Router() {
 
           <Route path="/tolls">
             {() => <ProtectedRoute component={TollsPage} />}
+          </Route>
+
+          <Route path="/clients">
+            {() => <ProtectedRoute component={ClientsPage} />}
+          </Route>
+
+          <Route path="/team">
+            {() => <ProtectedRoute component={TeamPage} />}
           </Route>
 
           <Route path="/settings">

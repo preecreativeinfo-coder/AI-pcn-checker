@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { format, differenceInCalendarDays } from "date-fns";
-import { ChevronRight, FileText, Search, UploadCloud } from "lucide-react";
+import { ChevronRight, Download, FileText, Search, UploadCloud } from "lucide-react";
 import { AppLayout } from "@/components/layout/app-layout";
-import { usePCNs } from "@/hooks/use-pcns";
+import { usePCNs, type PCN } from "@/hooks/use-pcns";
+import { useAccount } from "@/lib/account";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -11,6 +12,30 @@ import { Button } from "@/components/ui/button";
 import { PCN_STATUSES, statusClass, statusLabel } from "@/lib/pcn-status";
 
 const FILTERS = ["all", ...PCN_STATUSES] as const;
+
+/** Export the given PCNs to a downloadable CSV (business feature). */
+function exportPcnsCsv(rows: PCN[]) {
+  const headers = ["Reference", "Issuer", "Status", "Issue date", "Due date", "Amount", "Location", "Contravention code"];
+  const esc = (v: unknown) => {
+    const s = v == null ? "" : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [headers.join(",")];
+  for (const p of rows) {
+    lines.push(
+      [p.pcn_reference, p.issuer, p.status, p.issue_date ?? "", p.due_date ?? "", p.amount ?? "", p.location ?? "", p.contravention_code ?? ""]
+        .map(esc)
+        .join(","),
+    );
+  }
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `pcns-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 function dueText(dueDate: string, status: string): { text: string; className: string } | null {
   if (status === "paid" || status === "cancelled") return null;
@@ -23,6 +48,7 @@ function dueText(dueDate: string, status: string): { text: string; className: st
 
 export default function PCNsPage() {
   const { data: pcns, isLoading } = usePCNs();
+  const { isBusiness } = useAccount();
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -49,11 +75,18 @@ export default function PCNsPage() {
               {all.length} total notice{all.length === 1 ? "" : "s"}
             </p>
           </div>
-          <Button asChild>
-            <Link href="/pcns/upload">
-              <UploadCloud className="mr-2 h-4 w-4" /> Upload PCN
-            </Link>
-          </Button>
+          <div className="flex gap-2">
+            {isBusiness && (
+              <Button variant="outline" onClick={() => exportPcnsCsv(filteredPcns)} disabled={filteredPcns.length === 0}>
+                <Download className="mr-2 h-4 w-4" /> Export CSV
+              </Button>
+            )}
+            <Button asChild>
+              <Link href="/pcns/upload">
+                <UploadCloud className="mr-2 h-4 w-4" /> Upload PCN
+              </Link>
+            </Button>
+          </div>
         </div>
 
         {/* Search + filter pills */}

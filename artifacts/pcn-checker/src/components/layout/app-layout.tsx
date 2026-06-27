@@ -1,18 +1,9 @@
 import { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
-import { Car, FileText, LayoutDashboard, LogOut, Receipt, Settings, UploadCloud } from "lucide-react";
+import { Building2, Car, FileText, LayoutDashboard, LogOut, Receipt, Settings, UploadCloud, Users } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { useAccount } from "@/lib/account";
 import { Button } from "@/components/ui/button";
-
-// Desktop sidebar nav (full set, incl. Upload PCN).
-const NAV_ITEMS = [
-  { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
-  { href: "/pcns", icon: FileText, label: "My PCNs" },
-  { href: "/vehicles", icon: Car, label: "Vehicles" },
-  { href: "/tolls", icon: Receipt, label: "Tolls & Charges" },
-  { href: "/pcns/upload", icon: UploadCloud, label: "Upload PCN" },
-  { href: "/settings", icon: Settings, label: "Settings" },
-];
 
 // Mobile bottom tab bar (four primary destinations; Upload lives on the pages).
 const TAB_ITEMS = [
@@ -83,6 +74,19 @@ function BottomTab({ href, icon: Icon, label }: { href: string; icon: any; label
 }
 
 function SidebarContent({ user, signOut }: { user: any; signOut: () => void }) {
+  const { isBusiness, isAgency } = useAccount();
+  // Base nav + business/agency-only entries (hidden for personal accounts).
+  const items = [
+    { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
+    { href: "/pcns", icon: FileText, label: "My PCNs" },
+    { href: "/vehicles", icon: Car, label: "Vehicles" },
+    { href: "/tolls", icon: Receipt, label: "Tolls & Charges" },
+    ...(isAgency ? [{ href: "/clients", icon: Building2, label: "Clients" }] : []),
+    ...(isBusiness ? [{ href: "/team", icon: Users, label: "Team" }] : []),
+    { href: "/pcns/upload", icon: UploadCloud, label: "Upload PCN" },
+    { href: "/settings", icon: Settings, label: "Settings" },
+  ];
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-14 items-center px-4 border-b shrink-0">
@@ -90,7 +94,7 @@ function SidebarContent({ user, signOut }: { user: any; signOut: () => void }) {
       </div>
 
       <nav className="flex-1 overflow-auto p-4 space-y-1">
-        {NAV_ITEMS.map((item) => (
+        {items.map((item) => (
           <SidebarNavLink key={item.href} href={item.href} icon={item.icon}>
             {item.label}
           </SidebarNavLink>
