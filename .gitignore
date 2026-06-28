@@ -53,3 +53,8 @@ Thumbs.db
 .env.local
 .env.*.local
 .vercel
+
+# Playwright (e2e) output
+test-results/
+playwright-report/
+.playwright/
